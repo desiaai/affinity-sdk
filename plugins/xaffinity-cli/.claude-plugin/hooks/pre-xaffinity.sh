@@ -2,7 +2,18 @@
 set -euo pipefail
 
 input=$(cat)
-command=$(echo "$input" | jq -r '.tool_input.command // ""')
+# Handle both object and string formats for tool_input
+# Object: {"tool_input": {"command": "..."}}
+# String: {"tool_input": "..."}
+command=$(echo "$input" | jq -r '
+  if .tool_input | type == "object" then
+    .tool_input.command // ""
+  elif .tool_input | type == "string" then
+    .tool_input
+  else
+    ""
+  end
+' 2>/dev/null || echo "")
 
 # Not an xaffinity command - allow
 if [[ "$command" != *"xaffinity"* ]]; then
