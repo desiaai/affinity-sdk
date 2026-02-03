@@ -2294,6 +2294,49 @@ class TestSortEdgeCases:
         assert result.data[2]["name"] is None
 
     @pytest.mark.asyncio
+    async def test_sort_datetime_strings_desc(self, mock_client: AsyncMock) -> None:
+        """Sort datetime strings in descending order correctly.
+
+        Regression test for bug where string values couldn't be negated,
+        causing desc order to return same results as asc order.
+        """
+        service = MagicMock()
+        records = [
+            {"id": 1, "createdAt": "2019-10-02T22:38:38Z"},  # oldest
+            {"id": 2, "createdAt": "2025-06-15T10:00:00Z"},  # middle
+            {"id": 3, "createdAt": "2026-02-02T15:18:00Z"},  # newest
+        ]
+        service.all.return_value = create_mock_page_iterator(records)
+        mock_client.persons = service
+
+        query = Query(
+            from_="persons",
+            order_by=[OrderByClause(field="createdAt", direction="desc")],
+        )
+        plan = ExecutionPlan(
+            query=query,
+            steps=[
+                PlanStep(step_id=0, operation="fetch", entity="persons", description="Fetch"),
+                PlanStep(step_id=1, operation="sort", description="Sort", depends_on=[0]),
+            ],
+            total_api_calls=1,
+            estimated_records_fetched=3,
+            estimated_memory_mb=0.01,
+            warnings=[],
+            recommendations=[],
+            has_expensive_operations=False,
+            requires_full_scan=False,
+        )
+
+        executor = QueryExecutor(mock_client)
+        result = await executor.execute(plan)
+
+        # Descending: newest first
+        assert result.data[0]["createdAt"] == "2026-02-02T15:18:00Z"
+        assert result.data[1]["createdAt"] == "2025-06-15T10:00:00Z"
+        assert result.data[2]["createdAt"] == "2019-10-02T22:38:38Z"
+
+    @pytest.mark.asyncio
     async def test_sort_mixed_types_fallback(self, mock_client: AsyncMock) -> None:
         """Sort with mixed types falls back to string comparison."""
         service = MagicMock()

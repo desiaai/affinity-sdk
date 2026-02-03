@@ -202,15 +202,26 @@ class QueryPlanner:
             # Client-side filter: must scan pages until enough matches found
             # Estimate output size based on limit (for downstream steps)
             estimated_records = self._estimate_primary_records(query)
-            # But estimate API calls based on scanning the full dataset
-            # With early termination, we expect to scan ~(records_needed / selectivity) records
-            # Heuristic: assume 50% selectivity, double the limit for expected scan size
-            scan_estimate = min(base_entity_count, (query.limit or base_entity_count) * 2)
+            # Estimate API calls based on how much we need to scan
+            if query.order_by is not None:
+                # orderBy requires ALL records before sorting, then limit is applied
+                scan_estimate = base_entity_count
+            else:
+                # With early termination, we expect to scan ~(records_needed / selectivity) records
+                # Heuristic: assume 50% selectivity, double the limit for expected scan size
+                scan_estimate = min(base_entity_count, (query.limit or base_entity_count) * 2)
             fetch_api_calls = self._estimate_pages(scan_estimate)
             fetch_description = f"Fetch {query.from_} (paginated, client-side filter)"
             fetch_operation = "fetch_streaming"
+        # No filter
+        elif query.order_by is not None:
+            # orderBy requires ALL records before sorting, then limit is applied
+            estimated_records = base_entity_count
+            fetch_api_calls = self._estimate_pages(base_entity_count)
+            fetch_description = f"Fetch {query.from_} (paginated, full scan for sort)"
+            fetch_operation = "fetch_streaming"
         else:
-            # No filter: can use limit directly
+            # Can use limit directly for early termination
             estimated_records = self._estimate_primary_records(query)
             fetch_api_calls = self._estimate_pages(estimated_records)
             fetch_description = f"Fetch {query.from_} (paginated)"

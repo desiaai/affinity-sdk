@@ -2805,26 +2805,69 @@ class QueryExecutor:
         if order_by is None:
             return
 
+        # Wrapper class for descending sort on non-numeric values
+        class _Descending:
+            """Wrapper that inverts comparison for descending sort."""
+
+            __slots__ = ("value",)
+            __hash__ = None  # type: ignore[assignment]  # Unhashable since we define __eq__
+
+            def __init__(self, value: Any) -> None:
+                self.value = value
+
+            def __lt__(self, other: _Descending) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                # Handle None values - None should sort after non-None
+                if self.value is None and other.value is None:
+                    return False
+                if self.value is None:
+                    return False  # None is not less than anything (sorts last)
+                if other.value is None:
+                    return True  # Non-None is less than None (comes first)
+                return bool(self.value > other.value)
+
+            def __gt__(self, other: _Descending) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                if self.value is None and other.value is None:
+                    return False
+                if self.value is None:
+                    return True  # None is greater (sorts last)
+                if other.value is None:
+                    return False  # Non-None is not greater than None
+                return bool(self.value < other.value)
+
+            def __eq__(self, other: object) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                return bool(self.value == other.value)
+
+            def __le__(self, other: _Descending) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                return not self.__gt__(other)
+
+            def __ge__(self, other: _Descending) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                return not self.__lt__(other)
+
         # Build sort key function
         def sort_key(record: dict[str, Any]) -> tuple[Any, ...]:
             keys: list[Any] = []
             for order in order_by:
                 value = resolve_field_path(record, order.field) if order.field else None
 
-                # Handle None values (sort to end)
-                if value is None:
-                    if order.direction == "asc":
+                if order.direction == "asc":
+                    # Ascending: None sorts to end via tuple ordering
+                    if value is None:
                         keys.append((1, None))
                     else:
-                        keys.append((0, None))
-                elif order.direction == "asc":
-                    keys.append((0, value))
-                else:
-                    # Negate for desc, but handle non-numeric
-                    try:
-                        keys.append((0, -value))
-                    except TypeError:
                         keys.append((0, value))
+                else:
+                    # Descending: wrap ALL values in _Descending for consistent comparison
+                    keys.append((0, _Descending(value)))
 
             return tuple(keys)
 

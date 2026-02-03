@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-02-03
+
+### Fixed
+- CLI: Query `orderBy` with descending direction now works correctly for string values (dates, names, etc.). Previously, descending sort on non-numeric fields silently returned results in ascending order because string values cannot be negated. The fix uses a comparison-inverting wrapper class for proper descending sort.
+- CLI: Query dry run now correctly estimates API calls when `orderBy` is present. Previously, `estimatedApiCalls` used the `limit` value even though sorting requires fetching all records first. A query with `limit: 200` and `orderBy` on a 9000-record list showed 4 API calls instead of ~90. This caused dynamic timeout calculations to be too short.
+
 ## [1.0.1] - 2026-02-01
 
 ### Fixed
