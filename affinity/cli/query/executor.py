@@ -1928,6 +1928,8 @@ class QueryExecutor:
                                 break
 
             # Fetch related entities using the specialized handler
+            # Pass progress callback to emit incremental progress during N+1 operations
+            # This prevents MCP timeout by extending the watchdog timer
             parent_to_related = await self._fetch_list_entry_indirect(
                 ctx.records,
                 target_entity_type,
@@ -1936,6 +1938,7 @@ class QueryExecutor:
                 list_id=await self._resolve_list_id(include_config.list_)
                 if include_config and include_config.list_
                 else None,
+                progress_callback=lambda cur, tot: self.progress.on_step_progress(step, cur, tot),
             )
 
             # Apply where filter if specified
@@ -2482,6 +2485,7 @@ class QueryExecutor:
         limit: int | None = None,
         days: int | None = None,
         list_id: int | None = None,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> dict[int, list[dict[str, Any]]]:
         """Fetch related entities for list entries based on entityType.
 
@@ -2491,6 +2495,8 @@ class QueryExecutor:
             limit: Max records per entity (for interactions)
             days: Lookback window in days (for interactions)
             list_id: Scope to specific opportunity list (for opportunities)
+            progress_callback: Optional callback(current, total) for progress emission
+                during N+1 operations to prevent MCP timeout
 
         Returns:
             Dict mapping listEntryId -> list of related entity records
@@ -2499,16 +2505,25 @@ class QueryExecutor:
         semaphore = asyncio.Semaphore(50)  # Limit concurrent connections
 
         if target_entity_type == "persons":
-            await self._fetch_persons_for_list_entries(entries, results, semaphore)
+            await self._fetch_persons_for_list_entries(
+                entries, results, semaphore, progress_callback=progress_callback
+            )
         elif target_entity_type == "companies":
-            await self._fetch_companies_for_list_entries(entries, results, semaphore)
+            await self._fetch_companies_for_list_entries(
+                entries, results, semaphore, progress_callback=progress_callback
+            )
         elif target_entity_type == "opportunities":
             await self._fetch_opportunities_for_list_entries(
-                entries, results, semaphore, list_id=list_id
+                entries, results, semaphore, list_id=list_id, progress_callback=progress_callback
             )
         elif target_entity_type == "interactions":
             await self._fetch_interactions_for_list_entries(
-                entries, results, semaphore, limit=limit, days=days
+                entries,
+                results,
+                semaphore,
+                limit=limit,
+                days=days,
+                progress_callback=progress_callback,
             )
 
         return results
@@ -2518,6 +2533,8 @@ class QueryExecutor:
         entries: list[dict[str, Any]],
         results: dict[int, list[dict[str, Any]]],
         semaphore: asyncio.Semaphore,
+        *,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         """Fetch associated persons for list entries."""
         from affinity.types import CompanyId, OpportunityId
@@ -2556,8 +2573,19 @@ class QueryExecutor:
 
             return (entry_id, ids)
 
-        # Phase 1: Parallel fetch all association IDs
-        id_results = await asyncio.gather(*[get_person_ids_for_entry(e) for e in entries])
+        # Phase 1: Parallel fetch all association IDs with incremental progress
+        # Use as_completed to emit progress during N+1 fetches (prevents MCP timeout)
+        total = len(entries)
+        tasks = [asyncio.create_task(get_person_ids_for_entry(e)) for e in entries]
+        id_results: list[tuple[int, list[int]]] = []
+
+        for completed, future in enumerate(asyncio.as_completed(tasks), start=1):
+            result = await future
+            id_results.append(result)
+            # Emit progress every 10 items or at completion to extend MCP timeout
+            if progress_callback and (completed % 10 == 0 or completed == total):
+                progress_callback(completed, total)
+
         entry_to_person_ids = dict(id_results)
 
         # Phase 2: Deduplicate and batch fetch full records
@@ -2577,6 +2605,8 @@ class QueryExecutor:
         entries: list[dict[str, Any]],
         results: dict[int, list[dict[str, Any]]],
         semaphore: asyncio.Semaphore,
+        *,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         """Fetch associated companies for list entries."""
         from affinity.types import OpportunityId, PersonId
@@ -2614,8 +2644,17 @@ class QueryExecutor:
 
             return (entry_id, ids)
 
-        # Same two-phase pattern as persons
-        id_results = await asyncio.gather(*[get_company_ids_for_entry(e) for e in entries])
+        # Same two-phase pattern as persons with incremental progress
+        total = len(entries)
+        tasks = [asyncio.create_task(get_company_ids_for_entry(e)) for e in entries]
+        id_results: list[tuple[int, list[int]]] = []
+
+        for completed, future in enumerate(asyncio.as_completed(tasks), start=1):
+            result = await future
+            id_results.append(result)
+            if progress_callback and (completed % 10 == 0 or completed == total):
+                progress_callback(completed, total)
+
         entry_to_company_ids = dict(id_results)
 
         all_company_ids = list({cid for cids in entry_to_company_ids.values() for cid in cids})
@@ -2638,11 +2677,13 @@ class QueryExecutor:
         semaphore: asyncio.Semaphore,
         *,
         list_id: int | None = None,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         """Fetch associated opportunities for list entries.
 
         Args:
             list_id: If provided, only return opportunities from this specific list.
+            progress_callback: Optional callback(current, total) for progress emission
         """
         from affinity.types import CompanyId, PersonId
 
@@ -2679,8 +2720,17 @@ class QueryExecutor:
 
             return (entry_id, ids)
 
-        # Same two-phase pattern
-        id_results = await asyncio.gather(*[get_opportunity_ids_for_entry(e) for e in entries])
+        # Same two-phase pattern with incremental progress
+        total = len(entries)
+        tasks = [asyncio.create_task(get_opportunity_ids_for_entry(e)) for e in entries]
+        id_results: list[tuple[int, list[int]]] = []
+
+        for completed, future in enumerate(asyncio.as_completed(tasks), start=1):
+            result = await future
+            id_results.append(result)
+            if progress_callback and (completed % 10 == 0 or completed == total):
+                progress_callback(completed, total)
+
         entry_to_opp_ids = dict(id_results)
 
         all_opp_ids = list({oid for oids in entry_to_opp_ids.values() for oid in oids})
@@ -2707,12 +2757,14 @@ class QueryExecutor:
         *,
         limit: int | None = None,
         days: int | None = None,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         """Fetch interactions for list entries.
 
         Args:
             limit: Max interactions per entity (default 100)
             days: Lookback window in days (default 90)
+            progress_callback: Optional callback(current, total) for progress emission
         """
         from datetime import datetime, timedelta, timezone
 
@@ -2770,10 +2822,17 @@ class QueryExecutor:
 
             return (entry_id, interactions)
 
-        # Direct fetch (no ID→record indirection needed for interactions)
-        interaction_results = await asyncio.gather(
-            *[get_interactions_for_entry(e) for e in entries]
-        )
+        # Direct fetch with incremental progress (no ID→record indirection needed)
+        total = len(entries)
+        tasks = [asyncio.create_task(get_interactions_for_entry(e)) for e in entries]
+        interaction_results: list[tuple[int, list[dict[str, Any]]]] = []
+
+        for completed, future in enumerate(asyncio.as_completed(tasks), start=1):
+            result = await future
+            interaction_results.append(result)
+            if progress_callback and (completed % 10 == 0 or completed == total):
+                progress_callback(completed, total)
+
         results.update(dict(interaction_results))
 
     def _execute_aggregate(self, _step: PlanStep, ctx: ExecutionContext) -> None:
@@ -2815,7 +2874,7 @@ class QueryExecutor:
             def __init__(self, value: Any) -> None:
                 self.value = value
 
-            def __lt__(self, other: _Descending) -> bool:
+            def __lt__(self, other: object) -> bool:
                 if not isinstance(other, _Descending):
                     return NotImplemented  # type: ignore[return-value]
                 # Handle None values - None should sort after non-None
@@ -2827,7 +2886,7 @@ class QueryExecutor:
                     return True  # Non-None is less than None (comes first)
                 return bool(self.value > other.value)
 
-            def __gt__(self, other: _Descending) -> bool:
+            def __gt__(self, other: object) -> bool:
                 if not isinstance(other, _Descending):
                     return NotImplemented  # type: ignore[return-value]
                 if self.value is None and other.value is None:
@@ -2843,12 +2902,12 @@ class QueryExecutor:
                     return NotImplemented  # type: ignore[return-value]
                 return bool(self.value == other.value)
 
-            def __le__(self, other: _Descending) -> bool:
+            def __le__(self, other: object) -> bool:
                 if not isinstance(other, _Descending):
                     return NotImplemented  # type: ignore[return-value]
                 return not self.__gt__(other)
 
-            def __ge__(self, other: _Descending) -> bool:
+            def __ge__(self, other: object) -> bool:
                 if not isinstance(other, _Descending):
                     return NotImplemented  # type: ignore[return-value]
                 return not self.__lt__(other)
