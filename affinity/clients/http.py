@@ -810,7 +810,10 @@ class RateLimitState:
         # Handle both uppercase (current) and lowercase (future) headers.
         def get_int(name: str) -> int | None:
             value = headers.get(name) or headers.get(name.lower())
-            return int(value) if value else None
+            try:
+                return int(value) if value else None
+            except ValueError:
+                return None
 
         request_id = _extract_request_id(_select_response_headers(headers))
         observed_any = False
