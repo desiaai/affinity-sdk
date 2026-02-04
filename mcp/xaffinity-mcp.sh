@@ -6,7 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export MCPBASH_PROJECT_ROOT="${SCRIPT_DIR}"
 
 # Source shared environment setup (debug mode, session cache, etc.)
-# This is the single source of truth - also sourced by mcp-bash in bundle mode
+# NOTE: In bundle mode, run-server.sh does NOT source env.sh.
+# This file is sourced only when xaffinity-mcp.sh is the entry point:
+# - Development mode (running xaffinity-mcp.sh directly)
+# - Provides backward-compat boolean→debug normalization for older mcp-bash
 # shellcheck source=server.d/env.sh
 source "${SCRIPT_DIR}/server.d/env.sh"
 

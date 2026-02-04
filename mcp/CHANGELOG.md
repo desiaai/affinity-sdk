@@ -5,6 +5,15 @@ All notable changes to the xaffinity MCP server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] - 2026-02-04
+
+### Fixed
+- **Debug Mode UI toggle now works**: The "Debug Mode" toggle in Claude Desktop Extensions settings now correctly enables debug logging. Previously, the boolean value `true` was not recognized by the mcp-bash framework. Upgraded to mcp-bash 1.1.1 which normalizes boolean values (`true`/`1` → `debug`, `false`/`0` → `info`).
+
+### Changed
+- Upgraded mcp-bash framework to 1.1.1 (major version jump includes zombie process mitigation, MCP Apps support, and boolean log level normalization).
+- Fixed incorrect comment in `xaffinity-mcp.sh` that claimed `env.sh` is sourced in bundle mode (it is not).
+
 ## [1.17.1] - 2026-02-03
 
 ### Fixed

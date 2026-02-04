@@ -98,6 +98,8 @@ elif [[ "$dry_run" == "true" ]]; then
     timeout_secs=30
 else
     # Calculate dynamic timeout based on estimated API calls
+    # Emit progress to extend MCP timeout during planning phase
+    mcp_progress 0 "Planning query..."
     if dynamic_timeout=$(calc_dynamic_timeout 2>/dev/null); then
         timeout_secs=$dynamic_timeout
     else
