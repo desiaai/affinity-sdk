@@ -82,7 +82,7 @@ def test_handle_response_covers_non_json_error_body_empty_and_scalar_payload() -
 
 def test_download_file_rate_limit_retries_with_retry_after(monkeypatch: Any) -> None:
     sleeps: list[float] = []
-    monkeypatch.setattr("affinity.clients.http.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("affinity.clients.http.time.sleep", sleeps.append)
 
     calls: dict[str, int] = {"n": 0}
 
@@ -344,7 +344,7 @@ def test_stream_download_non_redirect_no_progress_non_digit_length_and_progress_
 
 def test_stream_download_redirect_progress_and_error_paths(monkeypatch: Any) -> None:
     sleeps: list[float] = []
-    monkeypatch.setattr("affinity.clients.http.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("affinity.clients.http.time.sleep", sleeps.append)
     monkeypatch.setattr("affinity.clients.http.time.time_ns", lambda: 500_000)
 
     calls: dict[str, int] = {"external": 0}
@@ -395,10 +395,10 @@ def test_stream_download_redirect_progress_and_error_paths(monkeypatch: Any) -> 
 
 def test_request_with_retry_retries_rate_limit_and_sleeps(monkeypatch: Any) -> None:
     sleeps: list[float] = []
-    monkeypatch.setattr("affinity.clients.http.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("affinity.clients.http.time.sleep", sleeps.append)
 
     debug_calls: list[str] = []
-    monkeypatch.setattr("affinity.clients.http.logger.debug", lambda msg: debug_calls.append(msg))
+    monkeypatch.setattr("affinity.clients.http.logger.debug", debug_calls.append)
 
     calls: dict[str, int] = {"n": 0}
 
@@ -483,7 +483,7 @@ def test_request_with_retry_timeout_and_network_retry_sleep_and_succeed(
     monkeypatch: Any, exc: Exception, _expected: type[Exception]
 ) -> None:
     sleeps: list[float] = []
-    monkeypatch.setattr("affinity.clients.http.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("affinity.clients.http.time.sleep", sleeps.append)
     monkeypatch.setattr("affinity.clients.http.time.time_ns", lambda: 500_000)
 
     calls: dict[str, int] = {"n": 0}
@@ -840,7 +840,7 @@ def test_stream_download_redirect_timeout_breaks_when_exhausted(monkeypatch: Any
 
 def test_stream_download_redirect_network_errors_retry_then_succeed(monkeypatch: Any) -> None:
     sleeps: list[float] = []
-    monkeypatch.setattr("affinity.clients.http.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("affinity.clients.http.time.sleep", sleeps.append)
     monkeypatch.setattr("affinity.clients.http.time.time_ns", lambda: 500_000)
 
     calls: dict[str, int] = {"n": 0}
@@ -997,7 +997,7 @@ async def test_async_request_with_retry_rate_limit_retry_and_non_retryable_metho
     monkeypatch.setattr("affinity.clients.http.asyncio.sleep", fake_sleep)
 
     debug_calls: list[str] = []
-    monkeypatch.setattr("affinity.clients.http.logger.debug", lambda msg: debug_calls.append(msg))
+    monkeypatch.setattr("affinity.clients.http.logger.debug", debug_calls.append)
 
     calls: dict[str, int] = {"n": 0}
 
