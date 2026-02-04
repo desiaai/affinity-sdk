@@ -931,9 +931,9 @@ def _format_scalar_value(*, key: str | None, value: Any) -> str:
             end_str = str(value.get("end", ""))
             # Extract just the date portion if it's an ISO datetime
             if "T" in start_str:
-                start_str = start_str.split("T")[0]
+                start_str = start_str.split("T", maxsplit=1)[0]
             if "T" in end_str:
-                end_str = end_str.split("T")[0]
+                end_str = end_str.split("T", maxsplit=1)[0]
             return f"{start_str} → {end_str}"
         return f"object ({len(value):,} keys)"
     if isinstance(value, bool):

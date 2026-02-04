@@ -1109,7 +1109,7 @@ def poll_merge_status(
     Returns:
         True if merge succeeded, False if failed or timed out
     """
-    task_id = task_url.split("/")[-1]
+    task_id = task_url.rsplit("/", maxsplit=1)[-1]
     wait_time = 0.5  # Start with 500ms
     elapsed = 0.0
 
