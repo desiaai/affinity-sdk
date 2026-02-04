@@ -12,13 +12,6 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.9
-    hooks:
-      - id: ruff-check
-        args: [--fix]
-      - id: ruff-format
-
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.15.0
     hooks:
@@ -41,6 +34,19 @@ repos:
 
   - repo: local
     hooks:
+      # Use system ruff (from pyproject.toml) to ensure version parity with CI
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --fix
+        language: system
+        types: [python]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format
+        language: system
+        types: [python]
+        require_serial: true
       - id: check-cli-patterns
         name: Check CLI serialization patterns
         entry: python tools/check_cli_patterns.py

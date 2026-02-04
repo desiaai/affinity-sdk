@@ -47,7 +47,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0.0",
     "respx>=0.21.0",  # httpx mocking
-    "ruff>=0.5.0",
+    "ruff>=0.14.0",  # Minimum for PLC0207/PLW0108 rules; used by pre-commit (local)
     "mypy>=1.10.0",
     # CLI deps are included in dev to keep type-checking and tests consistent.
     "click>=8.1",
