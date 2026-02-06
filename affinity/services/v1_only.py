@@ -295,7 +295,7 @@ class ReminderService:
             completer_id: Filter by who completed the reminder
             type: Filter by reminder type (ONE_TIME or RECURRING)
             reset_type: Filter by reset type (FIXED_DATE, DATE_ADDED, or INTERACTION)
-            status: Filter by status (ACTIVE, SNOOZED, or COMPLETE)
+            status: Filter by status (COMPLETED, ACTIVE, or OVERDUE)
             due_before: Filter reminders due before this datetime
             due_after: Filter reminders due after this datetime
             page_size: Number of results per page
@@ -305,17 +305,17 @@ class ReminderService:
             PaginatedResponse with reminders and next_page_token
         """
         params: dict[str, Any] = {}
-        if person_id:
+        if person_id is not None:
             params["person_id"] = int(person_id)
-        if company_id:
+        if company_id is not None:
             params["organization_id"] = int(company_id)
-        if opportunity_id:
+        if opportunity_id is not None:
             params["opportunity_id"] = int(opportunity_id)
-        if creator_id:
+        if creator_id is not None:
             params["creator_id"] = int(creator_id)
-        if owner_id:
+        if owner_id is not None:
             params["owner_id"] = int(owner_id)
-        if completer_id:
+        if completer_id is not None:
             params["completer_id"] = int(completer_id)
         if type is not None:
             params["type"] = int(type)
@@ -323,13 +323,13 @@ class ReminderService:
             params["reset_type"] = int(reset_type)
         if status is not None:
             params["status"] = int(status)
-        if due_before:
+        if due_before is not None:
             params["due_before"] = due_before.isoformat()
-        if due_after:
+        if due_after is not None:
             params["due_after"] = due_after.isoformat()
-        if page_size:
+        if page_size is not None:
             params["page_size"] = page_size
-        if page_token:
+        if page_token is not None:
             params["page_token"] = page_token
 
         data = self._client.get("/reminders", params=params or None, v1=True)
@@ -400,7 +400,7 @@ class ReminderService:
             completer_id: Filter by who completed the reminder
             type: Filter by reminder type (ONE_TIME or RECURRING)
             reset_type: Filter by reset type (FIXED_DATE, DATE_ADDED, or INTERACTION)
-            status: Filter by status (ACTIVE, SNOOZED, or COMPLETE)
+            status: Filter by status (COMPLETED, ACTIVE, or OVERDUE)
             due_before: Filter reminders due before this datetime
             due_after: Filter reminders due after this datetime
             page_size: Number of results per page
@@ -1222,15 +1222,15 @@ class EntityFileService:
             opportunity_id=opportunity_id,
         )
         params: dict[str, Any] = {}
-        if person_id:
+        if person_id is not None:
             params["person_id"] = int(person_id)
-        if company_id:
+        if company_id is not None:
             params["organization_id"] = int(company_id)
-        if opportunity_id:
+        if opportunity_id is not None:
             params["opportunity_id"] = int(opportunity_id)
-        if page_size:
+        if page_size is not None:
             params["page_size"] = page_size
-        if page_token:
+        if page_token is not None:
             params["page_token"] = page_token
 
         data = self._client.get("/entity-files", params=params or None, v1=True)
@@ -1748,17 +1748,17 @@ class AsyncReminderService:
         page_token: str | None = None,
     ) -> PaginatedResponse[Reminder]:
         params: dict[str, Any] = {}
-        if person_id:
+        if person_id is not None:
             params["person_id"] = int(person_id)
-        if company_id:
+        if company_id is not None:
             params["organization_id"] = int(company_id)
-        if opportunity_id:
+        if opportunity_id is not None:
             params["opportunity_id"] = int(opportunity_id)
-        if creator_id:
+        if creator_id is not None:
             params["creator_id"] = int(creator_id)
-        if owner_id:
+        if owner_id is not None:
             params["owner_id"] = int(owner_id)
-        if completer_id:
+        if completer_id is not None:
             params["completer_id"] = int(completer_id)
         if type is not None:
             params["type"] = int(type)
@@ -1766,13 +1766,13 @@ class AsyncReminderService:
             params["reset_type"] = int(reset_type)
         if status is not None:
             params["status"] = int(status)
-        if due_before:
+        if due_before is not None:
             params["due_before"] = due_before.isoformat()
-        if due_after:
+        if due_after is not None:
             params["due_after"] = due_after.isoformat()
-        if page_size:
+        if page_size is not None:
             params["page_size"] = page_size
-        if page_token:
+        if page_token is not None:
             params["page_token"] = page_token
 
         data = await self._client.get("/reminders", params=params or None, v1=True)
@@ -1839,7 +1839,7 @@ class AsyncReminderService:
             completer_id: Filter by who completed the reminder
             type: Filter by reminder type (ONE_TIME or RECURRING)
             reset_type: Filter by reset type (FIXED_DATE, DATE_ADDED, or INTERACTION)
-            status: Filter by status (ACTIVE, SNOOZED, or COMPLETE)
+            status: Filter by status (COMPLETED, ACTIVE, or OVERDUE)
             due_before: Filter reminders due before this datetime
             due_after: Filter reminders due after this datetime
             page_size: Number of results per page
@@ -1866,6 +1866,129 @@ class AsyncReminderService:
             )
 
         return AsyncPageIterator(fetch_page)
+
+    async def list_batch(
+        self,
+        *,
+        person_ids: Sequence[PersonId] | None = None,
+        company_ids: Sequence[CompanyId] | None = None,
+        opportunity_ids: Sequence[OpportunityId] | None = None,
+        status: ReminderStatus | None = None,
+        type: ReminderType | None = None,
+        reset_type: ReminderResetType | None = None,
+        creator_id: UserId | None = None,
+        owner_id: UserId | None = None,
+        due_before: datetime | None = None,
+        due_after: datetime | None = None,
+        max_concurrent: int = 10,
+        on_error: Literal["raise", "skip"] = "raise",
+    ) -> dict[int, builtins.list[Reminder]]:
+        """
+        List reminders for multiple entities with controlled concurrency.
+
+        Fetches all reminders (auto-paginates) for each entity ID concurrently.
+        Exactly one of person_ids, company_ids, or opportunity_ids must be provided.
+
+        Args:
+            person_ids: Person IDs to fetch reminders for
+            company_ids: Company IDs to fetch reminders for
+            opportunity_ids: Opportunity IDs to fetch reminders for
+            status: Filter by reminder status
+            type: Filter by reminder type
+            reset_type: Filter by reset type
+            creator_id: Filter by reminder creator
+            owner_id: Filter by reminder owner
+            due_before: Filter reminders due before this datetime
+            due_after: Filter reminders due after this datetime
+            max_concurrent: Maximum concurrent entity queries (default: 10)
+            on_error: How to handle errors:
+                - "raise": Raise on first error (default)
+                - "skip": Skip failed entities, return partial results
+
+        Returns:
+            Dict mapping entity ID (int) -> list of Reminder objects.
+            Entities with no matching reminders map to an empty list.
+
+        Raises:
+            ValueError: If not exactly one of person_ids/company_ids/opportunity_ids is provided.
+            AffinityError: If on_error="raise" and any fetch fails.
+
+        Example:
+            >>> results = await client.reminders.list_batch(
+            ...     company_ids=[CompanyId(1), CompanyId(2)],
+            ...     status=ReminderStatus.ACTIVE,
+            ...     max_concurrent=5,
+            ... )
+            >>> for company_id, reminders in results.items():
+            ...     print(f"Company {company_id}: {len(reminders)} active reminders")
+        """
+        # Validate exactly one entity type
+        provided = [
+            ("person_ids", person_ids),
+            ("company_ids", company_ids),
+            ("opportunity_ids", opportunity_ids),
+        ]
+        non_none = [(name, ids) for name, ids in provided if ids is not None]
+        if len(non_none) != 1:
+            raise ValueError(
+                "Exactly one of person_ids, company_ids, or opportunity_ids must be provided"
+            )
+
+        param_name, entity_ids = non_none[0]
+        if not entity_ids:
+            return {}
+        if max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
+
+        unique_ids = builtins.list(dict.fromkeys(entity_ids))
+        results: dict[int, builtins.list[Reminder]] = {}
+
+        # Build the entity-specific kwarg for iter()
+        id_kwarg_map = {
+            "person_ids": "person_id",
+            "company_ids": "company_id",
+            "opportunity_ids": "opportunity_id",
+        }
+        iter_kwarg_name = id_kwarg_map[param_name]
+
+        async def fetch_all_for_entity(eid: int) -> tuple[int, builtins.list[Reminder]]:
+            iter_kwargs: dict[str, Any] = {iter_kwarg_name: eid}
+            for key, val in [
+                ("status", status),
+                ("type", type),
+                ("reset_type", reset_type),
+                ("creator_id", creator_id),
+                ("owner_id", owner_id),
+                ("due_before", due_before),
+                ("due_after", due_after),
+            ]:
+                if val is not None:
+                    iter_kwargs[key] = val
+            reminders: builtins.list[Reminder] = []
+            try:
+                async for reminder in self.iter(**iter_kwargs):
+                    reminders.append(reminder)
+            except AffinityError:
+                if on_error == "raise":
+                    raise
+                # on_error="skip": return whatever was collected before the error.
+            return (int(eid), reminders)
+
+        for i in range(0, len(unique_ids), max_concurrent):
+            chunk = unique_ids[i : i + max_concurrent]
+            tasks = [asyncio.create_task(fetch_all_for_entity(eid)) for eid in chunk]
+            try:
+                for coro in asyncio.as_completed(tasks):
+                    eid_int, reminders = await coro
+                    results[eid_int] = reminders
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+
+        return results
 
 
 class AsyncWebhookService:
@@ -2565,15 +2688,15 @@ class AsyncEntityFileService:
             opportunity_id=opportunity_id,
         )
         params: dict[str, Any] = {}
-        if person_id:
+        if person_id is not None:
             params["person_id"] = int(person_id)
-        if company_id:
+        if company_id is not None:
             params["organization_id"] = int(company_id)
-        if opportunity_id:
+        if opportunity_id is not None:
             params["opportunity_id"] = int(opportunity_id)
-        if page_size:
+        if page_size is not None:
             params["page_size"] = page_size
-        if page_token:
+        if page_token is not None:
             params["page_token"] = page_token
 
         data = await self._client.get("/entity-files", params=params or None, v1=True)
@@ -2593,6 +2716,65 @@ class AsyncEntityFileService:
     async def get(self, file_id: FileId) -> EntityFile:
         data = await self._client.get(f"/entity-files/{file_id}", v1=True)
         return EntityFile.model_validate(data)
+
+    async def batch_get(
+        self,
+        file_ids: Sequence[FileId],
+        *,
+        max_concurrent: int = 10,
+        on_error: Literal["raise", "skip"] = "raise",
+    ) -> dict[FileId, EntityFile]:
+        """
+        Fetch metadata for multiple files with controlled concurrency.
+
+        Makes individual get() calls with bounded concurrency.
+
+        Args:
+            file_ids: File IDs to fetch metadata for
+            max_concurrent: Maximum concurrent API calls (default: 10)
+            on_error: How to handle AffinityError exceptions:
+                - "raise": Raise on first AffinityError (default)
+                - "skip": Skip failed IDs, return partial results
+
+        Returns:
+            Dict mapping file_id -> EntityFile for successfully fetched files.
+
+        Raises:
+            AffinityError: If on_error="raise" and any fetch fails.
+        """
+        if not file_ids:
+            return {}
+        if max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
+
+        unique_ids = list(dict.fromkeys(file_ids))
+        results: dict[FileId, EntityFile] = {}
+
+        async def fetch_one(fid: FileId) -> tuple[FileId, EntityFile | None]:
+            try:
+                entity_file = await self.get(fid)
+                return (fid, entity_file)
+            except AffinityError:
+                if on_error == "raise":
+                    raise
+                return (fid, None)
+
+        for i in range(0, len(unique_ids), max_concurrent):
+            chunk = unique_ids[i : i + max_concurrent]
+            tasks = [asyncio.create_task(fetch_one(fid)) for fid in chunk]
+            try:
+                for coro in asyncio.as_completed(tasks):
+                    fid, entity_file = await coro
+                    if entity_file is not None:
+                        results[fid] = entity_file
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+
+        return results
 
     async def download(
         self,

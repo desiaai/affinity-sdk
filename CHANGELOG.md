@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-06
+
+### Added
+- SDK: `batch_get()` on `AsyncEntityFileService` for fetching file metadata concurrently with controlled concurrency. Supports `max_concurrent` and `on_error` ("raise"/"skip") parameters.
+- SDK: `list_batch()` on `AsyncReminderService` for fetching reminders across multiple entities concurrently with auto-pagination. Accepts `person_ids`, `company_ids`, or `opportunity_ids` with common filters.
+
+### Fixed
+- SDK: Fixed truthiness bugs in `ReminderService.list()`, `AsyncReminderService.list()`, `EntityFileService.list()`, and `AsyncEntityFileService.list()` where `PersonId(0)`, `CompanyId(0)`, and other falsy values were silently dropped from query parameters. Changed all `if <param>:` guards to `if <param> is not None:`.
+- SDK: Fixed incorrect `ReminderStatus` docstrings that referenced non-existent "SNOOZED" and "COMPLETE" values. The actual enum values are `COMPLETED`, `ACTIVE`, and `OVERDUE`.
+
 ## [1.1.0] - 2026-02-05
 
 ### Added
