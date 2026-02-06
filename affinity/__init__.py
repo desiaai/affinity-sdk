@@ -70,6 +70,9 @@ from .exceptions import (
     WriteNotAllowedError,
 )
 
+# Field resolution
+from .field_resolver import FieldResolver
+
 # Filter builder (FR-007)
 from .filters import F, Filter, FilterExpression
 
@@ -136,6 +139,8 @@ __all__ = [
     "Policies",
     # Pagination helpers
     "PaginationProgress",
+    # Field resolution
+    "FieldResolver",
     # File download helpers
     "PresignedUrl",
     # Type aliases (re-exported for convenience)

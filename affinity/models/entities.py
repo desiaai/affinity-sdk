@@ -68,6 +68,79 @@ class FieldValues(AffinityModel):
     requested: bool = False
     data: dict[str, Any] = Field(default_factory=dict)
 
+    def get(self, field_id: str | AnyFieldId) -> dict[str, Any] | None:
+        """
+        Get a field value by ID.
+
+        Args:
+            field_id: The field ID (e.g., "field-123" or FieldId(123))
+
+        Returns:
+            The field value dict containing 'id' and 'value' keys, or None if not found.
+
+        Example:
+            >>> company = client.companies.get(CompanyId(123), field_types=[FieldType.GLOBAL])
+            >>> field_data = company.fields.get("field-456")
+            >>> if field_data:
+            ...     print(field_data["value"])
+        """
+        fid = str(field_id)
+        return self.data.get(fid)
+
+    def get_value(self, field_id: str | AnyFieldId) -> Any:
+        """
+        Get the extracted field value by ID.
+
+        Handles nested value structures automatically:
+        - Text fields: returns string
+        - Dropdown fields: returns dropdown option ID (int)
+        - Person/Company references: returns entity ID (int)
+        - Location fields: returns Location dict
+        - Multi-value fields: returns list of values
+
+        Args:
+            field_id: The field ID (e.g., "field-123" or FieldId(123))
+
+        Returns:
+            The extracted value, or None if field not found.
+
+        Example:
+            >>> status = company.fields.get_value("field-456")
+            >>> print(status)  # "Active" (not {"data": "Active"})
+        """
+        field_data = self.get(field_id)
+        if field_data is None:
+            return None
+        return self._extract_value(field_data.get("value"))
+
+    @staticmethod
+    def _extract_value(value: Any) -> Any:
+        """Extract the actual value from nested field value structure.
+
+        Priority for dict values: dropdownOptionId > data > pass-through.
+        The API should never return both keys, but if it does, dropdown wins.
+        """
+        if value is None:
+            return None
+
+        # Multi-value: list of value objects
+        if isinstance(value, list):
+            return [FieldValues._extract_value(v) for v in value]
+
+        # Single value object with nested data
+        if isinstance(value, dict):
+            # Dropdown option ID
+            if "dropdownOptionId" in value:
+                return value["dropdownOptionId"]
+            # Standard data field (text, number, person ref, etc.)
+            if "data" in value:
+                return value["data"]
+            # Location or other complex type - return as-is
+            return value
+
+        # Primitive value (shouldn't happen but handle gracefully)
+        return value
+
     @model_validator(mode="before")
     @classmethod
     def _coerce_from_api(cls, value: Any) -> Any:

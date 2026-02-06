@@ -682,18 +682,34 @@ class FieldService:
         entity_type: EntityType | None = None,
     ) -> list[FieldMetadata]:
         """
-        Get fields (V1 API).
+        Get field metadata.
 
-        For list/person/company field metadata, prefer the V2 read endpoints on the
-        corresponding services when available (e.g., `client.lists.get_fields(...)`).
+        Results are cached for 5 minutes when caching is enabled on the client.
+
+        Args:
+            list_id: Filter to fields for a specific list
+            entity_type: Filter to fields for a specific entity type
+
+        Returns:
+            List of field metadata
         """
         params: dict[str, Any] = {}
-        if list_id:
+        if list_id is not None:
             params["list_id"] = int(list_id)
         if entity_type is not None:
             params["entity_type"] = int(entity_type)
 
-        data = self._client.get("/fields", params=params or None, v1=True)
+        list_key = "all" if list_id is None else int(list_id)
+        type_key = "all" if entity_type is None else int(entity_type)
+        cache_key = f"field:v1_list_{list_key}:type_{type_key}"
+
+        data = self._client.get(
+            "/fields",
+            params=params or None,
+            v1=True,
+            cache_key=cache_key,
+            cache_ttl=300,
+        )
         items = data.get("data", [])
         if not isinstance(items, list):
             items = []
@@ -2046,13 +2062,35 @@ class AsyncFieldService:
         list_id: ListId | None = None,
         entity_type: EntityType | None = None,
     ) -> builtins.list[FieldMetadata]:
+        """
+        Get field metadata.
+
+        Results are cached for 5 minutes when caching is enabled on the client.
+
+        Args:
+            list_id: Filter to fields for a specific list
+            entity_type: Filter to fields for a specific entity type
+
+        Returns:
+            List of field metadata
+        """
         params: dict[str, Any] = {}
-        if list_id:
+        if list_id is not None:
             params["list_id"] = int(list_id)
         if entity_type is not None:
             params["entity_type"] = int(entity_type)
 
-        data = await self._client.get("/fields", params=params or None, v1=True)
+        list_key = "all" if list_id is None else int(list_id)
+        type_key = "all" if entity_type is None else int(entity_type)
+        cache_key = f"field:v1_list_{list_key}:type_{type_key}"
+
+        data = await self._client.get(
+            "/fields",
+            params=params or None,
+            v1=True,
+            cache_key=cache_key,
+            cache_ttl=300,
+        )
         items = data.get("data", [])
         if not isinstance(items, list):
             items = []

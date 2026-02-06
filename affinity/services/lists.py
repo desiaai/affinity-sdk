@@ -169,6 +169,11 @@ class ListService:
             pagination=_safe_model_validate(PaginationInfo, data.get("pagination", {})),
         )
 
+    def get_first(self) -> AffinityList | None:
+        """Get the first list, or None if no lists exist."""
+        page = self.list(limit=1)
+        return page.data[0] if page.data else None
+
     def pages(
         self,
         *,
@@ -609,6 +614,30 @@ class ListEntryService:
         return PaginatedResponse[ListEntryWithEntity](
             data=entries,
             pagination=_safe_model_validate(PaginationInfo, data.get("pagination", {})),
+        )
+
+    def get_first(
+        self,
+        *,
+        filter: str | FilterExpression | None = None,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> ListEntryWithEntity | None:
+        """
+        Get the first list entry matching the filter, or None.
+
+        WARNING: List entry filtering is applied client-side (the V2 API
+        silently ignores filter parameters). This means the method may
+        fetch multiple pages before finding a match. If no entry matches,
+        **every page in the list is fetched** before returning None.
+        On large lists (25K+ entries), this can result in hundreds of
+        API calls. A UserWarning is emitted when filter is used.
+
+        For efficient server-side filtering, use saved views via CLI.
+        """
+        return next(
+            self.iter(filter=filter, field_ids=field_ids, field_types=field_types),
+            None,
         )
 
     def pages(
@@ -1201,6 +1230,11 @@ class AsyncListService:
             pagination=_safe_model_validate(PaginationInfo, data.get("pagination", {})),
         )
 
+    async def get_first(self) -> AffinityList | None:
+        """Get the first list, or None if no lists exist."""
+        page = await self.list(limit=1)
+        return page.data[0] if page.data else None
+
     async def pages(
         self,
         *,
@@ -1577,6 +1611,23 @@ class AsyncListEntryService:
             data=entries,
             pagination=_safe_model_validate(PaginationInfo, data.get("pagination", {})),
         )
+
+    async def get_first(
+        self,
+        *,
+        filter: str | FilterExpression | None = None,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> ListEntryWithEntity | None:
+        """
+        Get the first list entry matching the filter, or None.
+
+        See ListEntryService.get_first() for details and caveats about
+        client-side filtering on list entries.
+        """
+        async for entry in self.iter(filter=filter, field_ids=field_ids, field_types=field_types):
+            return entry
+        return None
 
     async def pages(
         self,

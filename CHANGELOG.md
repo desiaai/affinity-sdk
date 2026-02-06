@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-05
+
+### Added
+- SDK: `CompanyService.get_many(company_ids)` convenience method for batch fetching multiple companies in a single API call. Alias for `list(ids=[...])` with better discoverability.
+- SDK: `FieldValues.get(field_id)` convenience method for safer access to field values by ID. Returns the field value dict or `None` if not found.
+- SDK: `Affinity.read_only()` and `Affinity.read_only_from_env()` factory methods (and async variants) for creating clients that block all write operations. Useful for read-only scripts and dashboards.
+- SDK: `get_first()` convenience method on `CompanyService`, `PersonService`, `OpportunityService`, `ListService`, and `ListEntryService` (sync + async). Returns the first matching entity or `None`.
+- SDK: `batch_get()` on `AsyncCompanyService`, `AsyncPersonService`, and `AsyncOpportunityService` for fetching multiple entities with controlled concurrency. Supports `max_concurrent` and `on_error` ("raise"/"skip") parameters.
+- SDK: `FieldValues.get_value(field_id)` for extracting the unwrapped field value (e.g., returns `"Active"` instead of `{"data": "Active"}`). Handles text, dropdown, multi-value, and location fields.
+- SDK: `FieldResolver` helper class for looking up field values by name instead of ID. Supports case-insensitive matching, batch extraction via `get_many()`, and dropdown option resolution.
+- Docs: "Field Lookup Patterns" section in performance guide documenting `FieldResolver` usage, low-level access, and field metadata sources.
+
+### Fixed
+- SDK: `FieldService.list()` now caches results for 5 minutes (matching V2 field endpoints). Previously only V2 endpoints (`companies.get_fields()`, `persons.get_fields()`) were cached.
+- SDK: `FieldService.list(list_id=ListId(0))` no longer skips the `list_id` parameter. The falsy ID guard (`if list_id:`) was changed to `if list_id is not None:`.
+
 ## [1.0.3] - 2026-02-03
 
 ### Fixed

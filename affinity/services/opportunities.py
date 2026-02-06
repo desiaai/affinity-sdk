@@ -148,6 +148,17 @@ class OpportunityService:
             pagination=PaginationInfo.model_validate(data.get("pagination", {})),
         )
 
+    def get_first(self) -> Opportunity | None:
+        """
+        Get an opportunity, or None if none exist.
+
+        NOTE: With no filter or ordering guarantee, the returned opportunity
+        is arbitrary (determined by API default ordering). Primarily useful
+        for "does any opportunity exist?" checks.
+        """
+        page = self.list(limit=1)
+        return page.data[0] if page.data else None
+
     def pages(
         self,
         *,
@@ -830,6 +841,74 @@ class AsyncOpportunityService:
             data=[Opportunity.model_validate(item) for item in data.get("data", [])],
             pagination=PaginationInfo.model_validate(data.get("pagination", {})),
         )
+
+    async def get_first(self) -> Opportunity | None:
+        """
+        Get an opportunity, or None if none exist.
+
+        See OpportunityService.get_first() for details.
+        """
+        page = await self.list(limit=1)
+        return page.data[0] if page.data else None
+
+    async def batch_get(
+        self,
+        opportunity_ids: Sequence[OpportunityId],
+        *,
+        max_concurrent: int = 10,
+        on_error: Literal["raise", "skip"] = "raise",
+    ) -> dict[OpportunityId, Opportunity]:
+        """
+        Fetch multiple opportunities with controlled concurrency.
+
+        Makes individual get() calls with bounded concurrency.
+
+        Args:
+            opportunity_ids: Opportunity IDs to fetch
+            max_concurrent: Maximum concurrent API calls (default: 10)
+            on_error: How to handle AffinityError exceptions:
+                - "raise": Raise on first AffinityError (default)
+                - "skip": Skip failed IDs, return partial results
+
+        Returns:
+            Dict mapping opportunity_id -> Opportunity for successfully fetched items.
+
+        Raises:
+            AffinityError: If on_error="raise" and any fetch fails.
+        """
+        if not opportunity_ids:
+            return {}
+        if max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
+
+        unique_ids = list(dict.fromkeys(opportunity_ids))
+        results: dict[OpportunityId, Opportunity] = {}
+
+        async def fetch_one(oid: OpportunityId) -> tuple[OpportunityId, Opportunity | None]:
+            try:
+                opp = await self.get(oid)
+                return (oid, opp)
+            except AffinityError:
+                if on_error == "raise":
+                    raise
+                return (oid, None)
+
+        for i in range(0, len(unique_ids), max_concurrent):
+            chunk = unique_ids[i : i + max_concurrent]
+            tasks = [asyncio.create_task(fetch_one(oid)) for oid in chunk]
+            try:
+                for coro in asyncio.as_completed(tasks):
+                    oid, opp = await coro
+                    if opp is not None:
+                        results[oid] = opp
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+
+        return results
 
     async def pages(
         self,

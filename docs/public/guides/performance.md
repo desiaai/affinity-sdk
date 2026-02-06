@@ -142,6 +142,86 @@ person_count = sum(1 for _ in client.persons.iter())
 2. **Cache externally**: Count once and store the result in your application
 3. **Estimate**: If exact counts aren't critical, sample or track changes incrementally
 
+## Field Lookup Patterns
+
+When working with field values, you often need to look up fields by name rather than ID.
+The SDK provides several approaches with different trade-offs.
+
+### Recommended: FieldResolver
+
+For most use cases, use the `FieldResolver` helper:
+
+```python
+from affinity import Affinity, FieldResolver
+from affinity.types import FieldType
+
+with Affinity(api_key="...", enable_cache=True) as client:
+    # Create resolver from field metadata (cached for 5 minutes)
+    resolver = FieldResolver(client.companies.get_fields())
+
+    # Fetch companies with field data
+    companies = list(client.companies.iter(field_types=[FieldType.GLOBAL]))
+
+    for company in companies:
+        # Simple access by name
+        status = resolver.get(company, "Status")
+        industry = resolver.get(company, "Industry")
+
+        # Batch extraction
+        values = resolver.get_many(company, ["Status", "Industry", "Size"])
+
+        # Resolve dropdown IDs to human-readable text
+        stage = resolver.get(company, "Deal Stage", resolve_dropdowns=True)
+```
+
+The `FieldResolver`:
+- Caches name -> ID mapping internally
+- Handles nested value extraction automatically
+- Supports case-insensitive field names
+- Can resolve dropdown option IDs to text labels
+
+### Low-Level Access
+
+For direct access when you already have field IDs:
+
+```python
+# Get extracted value by field ID
+value = company.fields.get_value("field-123")  # Returns "Active", not nested dict
+
+# Get raw field data (for advanced use cases)
+field_data = company.fields.get("field-123")  # Returns {"id": ..., "value": {...}}
+```
+
+### Field Metadata Sources
+
+Choose the appropriate source based on your needs:
+
+| Method | Scope | Use Case |
+|--------|-------|----------|
+| `client.fields.list()` | All fields | Cross-entity operations |
+| `client.fields.list(list_id=...)` | List-specific fields | Working with one list |
+| `client.companies.get_fields()` | Company fields | Company-focused work |
+| `client.persons.get_fields()` | Person fields | Person-focused work |
+| `client.lists.get_fields(list_id)` | List fields | List entry operations |
+
+All methods cache results for 5 minutes when caching is enabled.
+
+### Caching Considerations
+
+Field metadata changes infrequently (only when admins add/modify fields), so caching
+is safe for most applications:
+
+```python
+# Enable caching for automatic 5-minute TTL
+client = Affinity(api_key="...", enable_cache=True)
+
+# For long-running processes, you can manually refresh
+field_by_name = {f.name.casefold(): f for f in client.companies.get_fields()}
+# ... later, after known field changes ...
+client.clear_cache()
+field_by_name = {f.name.casefold(): f for f in client.companies.get_fields()}
+```
+
 ## Next steps
 
 - [Pagination](pagination.md)
