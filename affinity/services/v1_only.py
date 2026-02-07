@@ -2776,6 +2776,101 @@ class AsyncEntityFileService:
 
         return results
 
+    async def list_batch(
+        self,
+        *,
+        person_ids: Sequence[PersonId] | None = None,
+        company_ids: Sequence[CompanyId] | None = None,
+        opportunity_ids: Sequence[OpportunityId] | None = None,
+        max_concurrent: int = 10,
+        on_error: Literal["raise", "skip"] = "raise",
+    ) -> dict[int, builtins.list[EntityFile]]:
+        """
+        List files for multiple entities with controlled concurrency.
+
+        Fetches all files (auto-paginates) for each entity ID concurrently.
+        Exactly one of person_ids, company_ids, or opportunity_ids must be provided.
+
+        Args:
+            person_ids: Person IDs to fetch files for
+            company_ids: Company IDs to fetch files for
+            opportunity_ids: Opportunity IDs to fetch files for
+            max_concurrent: Maximum concurrent entity queries (default: 10)
+            on_error: How to handle errors:
+                - "raise": Raise on first error (default)
+                - "skip": Skip failed entities, return partial results
+
+        Returns:
+            Dict mapping entity ID (int) -> list of EntityFile objects.
+            Entities with no files map to an empty list.
+
+        Raises:
+            ValueError: If not exactly one of person_ids/company_ids/opportunity_ids is provided.
+            AffinityError: If on_error="raise" and any fetch fails.
+
+        Example:
+            >>> files_map = await client.files.list_batch(
+            ...     company_ids=[CompanyId(1), CompanyId(2)],
+            ...     max_concurrent=20,
+            ...     on_error="skip",
+            ... )
+            >>> for company_id, files in files_map.items():
+            ...     print(f"Company {company_id}: {len(files)} files")
+        """
+        provided = [
+            ("person_ids", person_ids),
+            ("company_ids", company_ids),
+            ("opportunity_ids", opportunity_ids),
+        ]
+        non_none = [(name, ids) for name, ids in provided if ids is not None]
+        if len(non_none) != 1:
+            raise ValueError(
+                "Exactly one of person_ids, company_ids, or opportunity_ids must be provided"
+            )
+
+        param_name, entity_ids = non_none[0]
+        if not entity_ids:
+            return {}
+        if max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
+
+        unique_ids = builtins.list(dict.fromkeys(entity_ids))
+        results: dict[int, builtins.list[EntityFile]] = {}
+
+        id_kwarg_map = {
+            "person_ids": "person_id",
+            "company_ids": "company_id",
+            "opportunity_ids": "opportunity_id",
+        }
+        iter_kwarg_name = id_kwarg_map[param_name]
+
+        async def fetch_all_for_entity(eid: int) -> tuple[int, builtins.list[EntityFile]]:
+            iter_kwargs: dict[str, Any] = {iter_kwarg_name: eid}
+            files: builtins.list[EntityFile] = []
+            try:
+                async for entity_file in self.iter(**iter_kwargs):
+                    files.append(entity_file)
+            except AffinityError:
+                if on_error == "raise":
+                    raise
+            return (int(eid), files)
+
+        for i in range(0, len(unique_ids), max_concurrent):
+            chunk = unique_ids[i : i + max_concurrent]
+            tasks = [asyncio.create_task(fetch_all_for_entity(eid)) for eid in chunk]
+            try:
+                for coro in asyncio.as_completed(tasks):
+                    eid_int, files = await coro
+                    results[eid_int] = files
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+
+        return results
+
     async def download(
         self,
         file_id: FileId,
