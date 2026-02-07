@@ -52,9 +52,12 @@ class FieldResolver:
         for field in fields:
             name_key = field.name.casefold()
             if name_key in self._by_name:
+                existing = self._by_name[name_key]
+                src_existing = existing.enrichment_source or existing.type or "unknown"
+                src_new = field.enrichment_source or field.type or "unknown"
                 warnings.warn(
                     f"Duplicate field name '{field.name}' "
-                    f"(IDs: {self._by_name[name_key].id}, {field.id}). "
+                    f"({src_existing} [{existing.id}] vs {src_new} [{field.id}]). "
                     f"Later field will be used. Use get_by_id() for unambiguous access.",
                     UserWarning,
                     stacklevel=2,
