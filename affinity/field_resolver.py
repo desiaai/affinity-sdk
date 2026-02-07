@@ -94,6 +94,16 @@ class FieldResolver:
             >>> stage = resolver.get(opportunity, "Stage", resolve_dropdowns=True)
             >>> print(stage)  # "Negotiation" instead of 12345
         """
+        # Delegate to inner entity for ListEntryWithEntity
+        if (
+            hasattr(entity, "entity")
+            and entity.entity is not None
+            and hasattr(entity.entity, "fields")
+            and not entity.fields.requested
+            and entity.entity.fields.requested
+        ):
+            entity = entity.entity
+
         if not entity.fields.requested:
             warnings.warn(
                 "Fields were not requested for this entity. "
@@ -168,6 +178,16 @@ class FieldResolver:
         Returns:
             The extracted field value, or None if not found.
         """
+        # Delegate to inner entity for ListEntryWithEntity
+        if (
+            hasattr(entity, "entity")
+            and entity.entity is not None
+            and hasattr(entity.entity, "fields")
+            and not entity.fields.requested
+            and entity.entity.fields.requested
+        ):
+            entity = entity.entity
+
         value = entity.fields.get_value(str(field_id))
         if resolve_dropdowns and value is not None:
             value = self._resolve_dropdown(value)

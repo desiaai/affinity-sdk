@@ -123,3 +123,117 @@ class TestFieldResolver:
         ]
         with pytest.warns(UserWarning, match="Duplicate field name"):
             FieldResolver(fields)
+
+    def test_get_delegates_to_list_entry_entity(self, resolver) -> None:
+        """get() should delegate to entry.entity when entry.fields not requested."""
+        import warnings as _warnings
+
+        from affinity.models.entities import ListEntryWithEntity
+
+        entry = ListEntryWithEntity.model_validate(
+            {
+                "id": 1,
+                "listId": 100,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "type": "company",
+                "entity": {
+                    "id": 1,
+                    "name": "Test Co",
+                    "fields": [{"id": "field-1", "value": {"data": "Active"}}],
+                },
+            }
+        )
+        assert not entry.fields.requested
+        assert entry.entity.fields.requested
+
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            result = resolver.get(entry, "Status")
+        assert result == "Active"
+        assert not any("Fields were not requested" in str(x.message) for x in w)
+
+    def test_get_by_id_delegates_to_list_entry_entity(self, resolver) -> None:
+        """get_by_id() should delegate to entry.entity when entry.fields not requested."""
+        from affinity.models.entities import ListEntryWithEntity
+
+        entry = ListEntryWithEntity.model_validate(
+            {
+                "id": 1,
+                "listId": 100,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "type": "company",
+                "entity": {
+                    "id": 1,
+                    "name": "Test Co",
+                    "fields": [{"id": "field-1", "value": {"data": "Active"}}],
+                },
+            }
+        )
+        result = resolver.get_by_id(entry, FieldId(1))
+        assert result == "Active"
+
+    def test_get_many_delegates_to_list_entry_entity(self, resolver) -> None:
+        """get_many() should work with ListEntryWithEntity via delegation."""
+        from affinity.models.entities import ListEntryWithEntity
+
+        entry = ListEntryWithEntity.model_validate(
+            {
+                "id": 1,
+                "listId": 100,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "type": "company",
+                "entity": {
+                    "id": 1,
+                    "name": "Test Co",
+                    "fields": [
+                        {"id": "field-1", "value": {"data": "Active"}},
+                        {"id": "field-2", "value": {"dropdownOptionId": 100}},
+                    ],
+                },
+            }
+        )
+        values = resolver.get_many(entry, ["Status", "Stage"])
+        assert values == {"Status": "Active", "Stage": 100}
+
+    def test_get_no_delegation_when_entity_is_none(self, resolver) -> None:
+        """get() should not delegate when entry.entity is None."""
+        from affinity.models.entities import ListEntryWithEntity
+
+        entry = ListEntryWithEntity.model_validate(
+            {
+                "id": 1,
+                "listId": 100,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "type": "company",
+            }
+        )
+        assert entry.entity is None
+        assert not entry.fields.requested
+
+        with pytest.warns(UserWarning, match="Fields were not requested"):
+            result = resolver.get(entry, "Status")
+        assert result is None
+
+    def test_get_no_delegation_when_entry_fields_requested(self, resolver) -> None:
+        """get() should use entry's own fields when entry.fields.requested is True."""
+        from affinity.models.entities import ListEntryWithEntity
+
+        entry = ListEntryWithEntity.model_validate(
+            {
+                "id": 1,
+                "listId": 100,
+                "createdAt": "2026-01-01T00:00:00Z",
+                "type": "company",
+                "fields": [{"id": "field-1", "value": {"data": "FromEntry"}}],
+                "entity": {
+                    "id": 1,
+                    "name": "Test Co",
+                    "fields": [{"id": "field-1", "value": {"data": "FromEntity"}}],
+                },
+            }
+        )
+        assert entry.fields.requested
+        assert entry.entity.fields.requested
+
+        result = resolver.get(entry, "Status")
+        assert result == "FromEntry"
