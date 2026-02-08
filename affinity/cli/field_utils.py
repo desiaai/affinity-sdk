@@ -285,12 +285,17 @@ class FieldResolver:
                 return field
         return None
 
-    def resolve_dropdown_value(self, field_id: str, value: str) -> tuple[dict[str, int] | str, str]:
+    def resolve_dropdown_value(
+        self, field_id: str, value: str
+    ) -> tuple[list[dict[str, int]] | dict[str, int] | str, str]:
         """Resolve a dropdown value (text or ID) to its option ID and value_type.
 
-        For dropdown/ranked-dropdown fields, accepts either:
-        - Dropdown option text (e.g., "In Progress") → returns (option_id, value_type)
-        - Dropdown option ID (e.g., "304089" or 304089) → returns (option_id, value_type)
+        For dropdown/ranked-dropdown/dropdown-multi fields, accepts either:
+        - Dropdown option text (e.g., "In Progress") → returns (option_obj, value_type)
+        - Dropdown option ID (e.g., "304089" or 304089) → returns (option_obj, value_type)
+
+        For dropdown-multi, the resolved option is wrapped in a list per V2 API:
+        ``[{"dropdownOptionId": ID}]`` instead of ``{"dropdownOptionId": ID}``.
 
         For non-dropdown fields, returns the value unchanged with inferred type.
 
@@ -314,17 +319,22 @@ class FieldResolver:
         value_type = field.value_type
         type_str = value_type.value if isinstance(value_type, FieldValueType) else str(value_type)
 
-        # Handle dropdown and ranked-dropdown fields
-        # V2 API expects: {"data": {"dropdownOptionId": ID}, "type": "dropdown|ranked-dropdown"}
-        if type_str in ("dropdown", "ranked-dropdown"):
+        # Handle dropdown, ranked-dropdown, and dropdown-multi fields
+        # V2 API expects:
+        #   dropdown/ranked-dropdown: {"data": {"dropdownOptionId": ID}, "type": "..."}
+        #   dropdown-multi: {"data": [{"dropdownOptionId": ID}], "type": "dropdown-multi"}
+        if type_str in ("dropdown", "ranked-dropdown", "dropdown-multi"):
             options = field.dropdown_options
 
             # First, try to match by option text (case-insensitive)
             value_lower = value.strip().lower()
             for opt in options:
                 if opt.text.lower() == value_lower:
-                    # V2 API format: wrap option ID in {"dropdownOptionId": ...}
-                    return {"dropdownOptionId": int(opt.id)}, type_str
+                    resolved: dict[str, int] = {"dropdownOptionId": int(opt.id)}
+                    # dropdown-multi expects array of option objects
+                    if type_str == "dropdown-multi":
+                        return [resolved], type_str
+                    return resolved, type_str
 
             # Then, try to parse as option ID
             try:
@@ -332,8 +342,10 @@ class FieldResolver:
                 # Validate the ID exists
                 for opt in options:
                     if int(opt.id) == option_id:
-                        # V2 API format: wrap option ID in {"dropdownOptionId": ...}
-                        return {"dropdownOptionId": option_id}, type_str
+                        resolved = {"dropdownOptionId": option_id}
+                        if type_str == "dropdown-multi":
+                            return [resolved], type_str
+                        return resolved, type_str
                 # ID not found in options
                 available = [f"'{opt.text}'" for opt in options[:5]]
                 suffix = "..." if len(options) > 5 else ""

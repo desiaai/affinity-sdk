@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-02-08
+
+### Fixed
+- CLI: `--set` and `--append` now work for `dropdown-multi` fields. Previously, `resolve_dropdown_value()` only handled `dropdown` and `ranked-dropdown`, causing all dropdown-multi writes to fail with "Field value type should be dropdown-multi" errors. The fix resolves option text/IDs and wraps them in the array format required by the V2 API.
+
 ## [1.3.1] - 2026-02-06
 
 ### Fixed

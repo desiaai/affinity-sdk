@@ -498,15 +498,24 @@ class TestUpdateCheckStatusJsonContract:
         from click.testing import CliRunner
 
         from affinity.cli.main import cli
+        from affinity.cli.paths import CliPaths
 
-        # Use isolated config/state dirs
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         # Ensure no existing config interferes
         monkeypatch.delenv("AFFINITY_API_KEY", raising=False)
 
+        # Use isolated paths (XDG env vars are ignored on macOS by PlatformDirs)
+        mock_paths = CliPaths(
+            config_dir=tmp_path / "config",
+            config_path=tmp_path / "config" / "config.toml",
+            cache_dir=tmp_path / "cache",
+            state_dir=tmp_path / "state",
+            log_dir=tmp_path / "logs",
+            log_file=tmp_path / "logs" / "xaffinity.log",
+        )
+
         runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "config", "update-check", "--status"])
+        with patch("affinity.cli.main.get_paths", return_value=mock_paths):
+            result = runner.invoke(cli, ["--json", "config", "update-check", "--status"])
 
         # Command should succeed
         assert result.exit_code == 0, f"Command failed: {result.output}"
@@ -579,15 +588,26 @@ class TestUpdateCheckStatusJsonContract:
         from click.testing import CliRunner
 
         from affinity.cli.main import cli
+        from affinity.cli.paths import CliPaths
 
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         monkeypatch.delenv("AFFINITY_API_KEY", raising=False)
+
+        mock_paths = CliPaths(
+            config_dir=tmp_path / "config",
+            config_path=tmp_path / "config" / "config.toml",
+            cache_dir=tmp_path / "cache",
+            state_dir=tmp_path / "state",
+            log_dir=tmp_path / "logs",
+            log_file=tmp_path / "logs" / "xaffinity.log",
+        )
 
         runner = CliRunner()
 
         # Mock subprocess.Popen to avoid actually spawning background process
-        with patch("subprocess.Popen") as mock_popen:
+        with (
+            patch("affinity.cli.main.get_paths", return_value=mock_paths),
+            patch("subprocess.Popen") as mock_popen,
+        ):
             result = runner.invoke(cli, ["config", "update-check", "--background"])
 
             # Verify subprocess was spawned
@@ -597,32 +617,48 @@ class TestUpdateCheckStatusJsonContract:
         assert result.exit_code == 0
         assert result.output.strip() == ""
 
-    def test_mutual_exclusion_now_status(self, tmp_path, monkeypatch):
+    def test_mutual_exclusion_now_status(self, tmp_path):
         """Verify --now and --status are mutually exclusive."""
         from click.testing import CliRunner
 
         from affinity.cli.main import cli
+        from affinity.cli.paths import CliPaths
 
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        mock_paths = CliPaths(
+            config_dir=tmp_path / "config",
+            config_path=tmp_path / "config" / "config.toml",
+            cache_dir=tmp_path / "cache",
+            state_dir=tmp_path / "state",
+            log_dir=tmp_path / "logs",
+            log_file=tmp_path / "logs" / "xaffinity.log",
+        )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["config", "update-check", "--now", "--status"])
+        with patch("affinity.cli.main.get_paths", return_value=mock_paths):
+            result = runner.invoke(cli, ["config", "update-check", "--now", "--status"])
 
         assert result.exit_code != 0
         assert "mutually exclusive" in result.output.lower()
 
-    def test_mutual_exclusion_action_with_enable(self, tmp_path, monkeypatch):
+    def test_mutual_exclusion_action_with_enable(self, tmp_path):
         """Verify action flags cannot be combined with --enable/--disable."""
         from click.testing import CliRunner
 
         from affinity.cli.main import cli
+        from affinity.cli.paths import CliPaths
 
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        mock_paths = CliPaths(
+            config_dir=tmp_path / "config",
+            config_path=tmp_path / "config" / "config.toml",
+            cache_dir=tmp_path / "cache",
+            state_dir=tmp_path / "state",
+            log_dir=tmp_path / "logs",
+            log_file=tmp_path / "logs" / "xaffinity.log",
+        )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["config", "update-check", "--status", "--enable"])
+        with patch("affinity.cli.main.get_paths", return_value=mock_paths):
+            result = runner.invoke(cli, ["config", "update-check", "--status", "--enable"])
 
         assert result.exit_code != 0
         assert "cannot combine" in result.output.lower()
