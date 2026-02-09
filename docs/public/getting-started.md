@@ -95,7 +95,7 @@ with Affinity.from_env() as client:
 
 !!! warning "SDK-specific gotchas"
     - Use typed IDs (e.g., `CompanyId(123)`) instead of raw integers.
-    - Entity `fields` are only present when requested via `field_ids` or `field_types` parameters. The `entity.fields.requested` boolean indicates whether field data was actually fetched (`True`) or omitted (`False`). When `True`, `entity.fields.data` contains the field values (which may be empty if the entity has no field values).
+    - Entity `fields` are only present when requested via `field_ids` or `field_types` parameters. The `entity.fields.requested` boolean indicates whether field data was actually fetched (`True`) or omitted (`False`). When `True`, `entity.fields.data` contains the field values (which may be empty if the entity has no field values). Use `FieldResolver` to look up values by field name instead of raw IDs — see [Field Lookup Patterns](guides/performance.md#field-lookup-patterns).
     - Some write operations still route to V1; see the V1 vs V2 routing guide.
 
 ## Sync vs async

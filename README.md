@@ -206,7 +206,7 @@ with Affinity(api_key="your-key") as client:
 ### Working with Lists
 
 ```python
-from affinity import Affinity
+from affinity import Affinity, FieldResolver
 from affinity.models import ListCreate
 from affinity.types import CompanyId, FieldId, FieldType, ListId, ListType
 
@@ -234,6 +234,13 @@ with Affinity(api_key="your-key") as client:
     # List entries with field data
     for entry in entries.all(field_types=[FieldType.LIST_SPECIFIC]):
         print(f"{entry.entity.name}: {entry.fields}")
+
+    # Look up field values by name (instead of raw field IDs)
+    # See docs/public/guides/performance.md for details
+    resolver = FieldResolver(pipeline.fields)
+    for entry in entries.all(field_types=[FieldType.LIST_SPECIFIC]):
+        status = resolver.get(entry, "Status", resolve_dropdowns=True)
+        print(f"{entry.entity.name}: {status}")
 
     # Add a company to the list
     entry = entries.add_company(CompanyId(456))

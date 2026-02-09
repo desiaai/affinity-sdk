@@ -10,7 +10,7 @@ This example demonstrates:
 
 import os
 
-from affinity import Affinity
+from affinity import Affinity, FieldResolver
 from affinity.types import FieldType, PersonType
 
 
@@ -29,19 +29,22 @@ def main() -> None:
         print(f"Tenant: {me.tenant.name}")
         print()
 
-        # List companies with enriched data
+        # List companies with enriched data, using FieldResolver for named access
         print("Companies (first page):")
         print("-" * 50)
+        fields = client.companies.get_fields()
+        resolver = FieldResolver(fields)
+
         companies = client.companies.list(
             field_types=[FieldType.ENRICHED],
             limit=5,
         )
         for company in companies.data:
+            industry = resolver.get(company, "Industry")
             print(f"  {company.name}")
             if company.domain:
                 print(f"    Domain: {company.domain}")
-            if company.fields.requested and company.fields.data:
-                print(f"    Fields: {len(company.fields.data)} values")
+            print(f"    Industry: {industry or '(no industry)'}")
         print()
 
         # Iterate through all internal team members
