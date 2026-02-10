@@ -152,7 +152,7 @@ The SDK provides several approaches with different trade-offs.
 For most use cases, use the `FieldResolver` helper:
 
 ```python
-from affinity import Affinity, FieldResolver
+from affinity import Affinity, FieldResolver, ResolveMode
 from affinity.types import FieldType
 
 with Affinity(api_key="...", enable_cache=True) as client:
@@ -170,15 +170,26 @@ with Affinity(api_key="...", enable_cache=True) as client:
         # Batch extraction
         values = resolver.get_many(company, ["Status", "Industry", "Size"])
 
-        # Resolve dropdown IDs to human-readable text
-        stage = resolver.get(company, "Deal Stage", resolve_dropdowns=True)
+        # Resolve all complex types to human-readable text
+        stage = resolver.get(company, "Deal Stage", resolve=ResolveMode.TEXT)
 ```
 
 The `FieldResolver`:
 - Caches name -> ID mapping internally
 - Handles nested value extraction automatically
 - Supports case-insensitive field names
-- Can resolve dropdown option IDs to text labels
+- `ResolveMode.TEXT` resolves dropdowns, persons, companies, locations to text
+- Disambiguates enrichment fields with `source:Name` syntax (e.g., `"dealroom:Description"`)
+
+### List Entry Field Access
+
+For list entries, the V2 API nests field data inside `entry.entity.fields`, not `entry.fields`.
+`FieldResolver.get()` handles this automatically — just pass the entry directly:
+
+```python
+for entry in client.lists.entries(list_id).all(field_types=[FieldType.LIST]):
+    status = resolver.get(entry, "Status")  # auto-delegates to entry.entity.fields
+```
 
 ### Low-Level Access
 
@@ -186,7 +197,7 @@ For direct access when you already have field IDs:
 
 ```python
 # Get extracted value by field ID
-value = company.fields.get_value("field-123")  # Returns "Active", not nested dict
+value = company.fields.get_value("field-123")  # "Active" for text, DropdownOption for dropdowns
 
 # Get raw field data (for advanced use cases)
 field_data = company.fields.get("field-123")  # Returns {"id": ..., "value": {...}}

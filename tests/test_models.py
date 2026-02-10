@@ -235,7 +235,7 @@ class TestEnums:
         """Test FieldType string enum values."""
         assert FieldType.ENRICHED == "enriched"
         assert FieldType.GLOBAL == "global"
-        assert FieldType.LIST_SPECIFIC == "list-specific"
+        assert FieldType.LIST == "list"
         assert FieldType.RELATIONSHIP_INTELLIGENCE == "relationship-intelligence"
 
     def test_interaction_type_values(self) -> None:
@@ -429,7 +429,7 @@ class TestFieldMetadataModel:
         data = {
             "id": "field-123",
             "name": "Deal Size",
-            "type": "list-specific",
+            "type": "list",
             "valueType": 3,  # NUMBER
             "allowsMultiple": False,
             "isRequired": False,
@@ -438,7 +438,7 @@ class TestFieldMetadataModel:
 
         assert field.id == "field-123"
         assert field.name == "Deal Size"
-        assert field.type == FieldType.LIST_SPECIFIC
+        assert field.type == FieldType.LIST
         assert field.value_type == FieldValueType.NUMBER
         assert field.allows_multiple is False
 

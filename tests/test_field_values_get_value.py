@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from affinity.models.entities import Company
+from affinity.models.entities import Company, DropdownOption
+from affinity.models.types import DropdownOptionId
 
 
 @pytest.mark.req("SDK-FIELD-VALUE-EXTRACTION")
@@ -25,7 +26,7 @@ class TestFieldValuesGetValue:
         assert company.fields.get_value("field-1") == "Active"
 
     def test_get_value_dropdown_field(self) -> None:
-        """get_value() should extract dropdown option ID."""
+        """get_value() should return DropdownOption for dropdown values."""
         company = Company.model_validate(
             {
                 "id": 1,
@@ -33,7 +34,83 @@ class TestFieldValuesGetValue:
                 "fields": [{"id": "field-1", "value": {"dropdownOptionId": 123}}],
             }
         )
-        assert company.fields.get_value("field-1") == 123
+        result = company.fields.get_value("field-1")
+        assert isinstance(result, DropdownOption)
+        assert result.id == DropdownOptionId(123)
+        assert result.text == ""  # no text in ID-only data
+
+    def test_get_value_dropdown_wrapped_in_data(self) -> None:
+        """get_value() should recurse through data envelope for dropdown."""
+        company = Company.model_validate(
+            {
+                "id": 1,
+                "name": "Test",
+                "fields": [
+                    {
+                        "id": "field-1",
+                        "value": {"type": "dropdown", "data": {"dropdownOptionId": 42}},
+                    }
+                ],
+            }
+        )
+        result = company.fields.get_value("field-1")
+        assert isinstance(result, DropdownOption)
+        assert result.id == DropdownOptionId(42)
+
+    def test_get_value_ranked_dropdown_wrapped_in_data(self) -> None:
+        """get_value() should return DropdownOption for ranked-dropdown."""
+        company = Company.model_validate(
+            {
+                "id": 1,
+                "name": "Test",
+                "fields": [
+                    {
+                        "id": "field-1",
+                        "value": {
+                            "type": "ranked-dropdown",
+                            "data": {
+                                "dropdownOptionId": 7,
+                                "text": "Passed",
+                                "rank": 8,
+                                "color": "green",
+                            },
+                        },
+                    }
+                ],
+            }
+        )
+        result = company.fields.get_value("field-1")
+        assert isinstance(result, DropdownOption)
+        assert result.id == DropdownOptionId(7)
+        assert result.text == "Passed"
+        assert result.rank == 8
+        assert result.color == "green"
+
+    def test_get_value_dropdown_multi_wrapped_in_data(self) -> None:
+        """get_value() should return list of DropdownOption for dropdown-multi."""
+        company = Company.model_validate(
+            {
+                "id": 1,
+                "name": "Test",
+                "fields": [
+                    {
+                        "id": "field-1",
+                        "value": {
+                            "type": "dropdown-multi",
+                            "data": [
+                                {"dropdownOptionId": 1, "text": "A"},
+                                {"dropdownOptionId": 2, "text": "B"},
+                            ],
+                        },
+                    }
+                ],
+            }
+        )
+        result = company.fields.get_value("field-1")
+        assert len(result) == 2
+        assert all(isinstance(opt, DropdownOption) for opt in result)
+        assert result[0].text == "A"
+        assert result[1].text == "B"
 
     def test_get_value_multi_value(self) -> None:
         """get_value() should extract list of values."""

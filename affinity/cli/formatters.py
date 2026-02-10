@@ -124,14 +124,9 @@ def to_cell(value: Any) -> str:
 
 def _extract_person_name(value: dict[str, Any]) -> str | None:
     """Extract display name from a person entity."""
-    first = value.get("firstName")
-    last = value.get("lastName")
-    parts = []
-    if isinstance(first, str) and first.strip():
-        parts.append(first.strip())
-    if isinstance(last, str) and last.strip():
-        parts.append(last.strip())
-    return " ".join(parts) if parts else None
+    from affinity.field_resolve_utils import resolve_person
+
+    return resolve_person(value)
 
 
 def _extract_fields_preview(data: dict[str, Any], max_fields: int = 2) -> str | None:

@@ -31,7 +31,14 @@ from ..models.pagination import (
     PaginationInfo,
 )
 from ..models.secondary import MergeTask
-from ..models.types import AnyFieldId, CompanyId, FieldType, OpportunityId, PersonId
+from ..models.types import (
+    AnyFieldId,
+    CompanyId,
+    FieldType,
+    OpportunityId,
+    PersonId,
+    validate_entity_field_types,
+)
 
 if TYPE_CHECKING:
     from ..clients.http import AsyncHTTPClient, HTTPClient
@@ -139,6 +146,7 @@ class PersonService:
         Returns:
             Paginated response with persons
         """
+        validate_entity_field_types(field_types, endpoint="person")
         if cursor is not None:
             if any(p is not None for p in (ids, field_ids, field_types, filter, limit)):
                 raise ValueError(
@@ -1027,6 +1035,7 @@ class AsyncPersonService:
         Returns:
             Paginated response with persons
         """
+        validate_entity_field_types(field_types, endpoint="person")
         if cursor is not None:
             if any(p is not None for p in (ids, field_ids, field_types, filter, limit)):
                 raise ValueError(

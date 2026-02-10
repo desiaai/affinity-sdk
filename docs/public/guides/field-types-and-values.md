@@ -20,13 +20,14 @@ Common values include:
 
 - `FieldType.ENRICHED`
 - `FieldType.GLOBAL`
-- `FieldType.LIST`
-- `FieldType.LIST_SPECIFIC`
+- `FieldType.LIST` (only valid for list entry endpoints)
+- `FieldType.RELATIONSHIP_INTELLIGENCE`
 
 Notes:
 
-- `FieldType.LIST_SPECIFIC` is an alternate string value the API uses for list-scoped fields (you may see
-  it in responses as `"list-specific"`). Treat it as equivalent to `FieldType.LIST` for most use cases.
+- `FieldType.LIST` is only accepted by list entry endpoints. Company/person endpoints accept
+  `ENRICHED`, `GLOBAL`, and `RELATIONSHIP_INTELLIGENCE` only — the SDK raises `ValueError` if
+  you pass `LIST` to a company or person method.
 
 ## Field IDs
 
@@ -114,8 +115,8 @@ Unknown future values are treated as open enums and preserved as strings.
 | `datetime` | `str` / `datetime.datetime` | Typically ISO-8601 datetime strings on read |
 | `person` / `person-multi` | `PersonId` / `list[PersonId]` | Under the hood: `int` or `list[int]` |
 | `company` / `company-multi` | `CompanyId` / `list[CompanyId]` | Under the hood: `int` or `list[int]` |
-| `dropdown` / `dropdown-multi` | `DropdownOptionId` / `list[DropdownOptionId]` | Under the hood: `int` or `list[int]` |
-| `ranked-dropdown` | `DropdownOptionId` | Under the hood: `int` |
+| `dropdown` / `dropdown-multi` | `DropdownOption` / `list[DropdownOption]` | Has `.id`, `.text`, `.rank`, `.color` |
+| `ranked-dropdown` | `DropdownOption` | Has `.id`, `.text`, `.rank`, `.color` |
 | `location` / `location-multi` | `dict[str, Any]` / `list[dict[str, Any]]` | Structured location object(s); shape varies by API |
 | `interaction` | `Any` | Relationship-intelligence fields; shape varies by API |
 

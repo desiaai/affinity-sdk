@@ -93,9 +93,9 @@ class FieldValues(AffinityModel):
 
         Handles nested value structures automatically:
         - Text fields: returns string
-        - Dropdown fields: returns dropdown option ID (int)
-        - Person/Company references: returns entity ID (int)
-        - Location fields: returns Location dict
+        - Dropdown fields: returns :class:`DropdownOption` (with id, text, rank, color)
+        - Person/Company references: returns dict with id + name fields
+        - Location fields: returns dict
         - Multi-value fields: returns list of values
 
         Args:
@@ -117,8 +117,11 @@ class FieldValues(AffinityModel):
     def _extract_value(value: Any) -> Any:
         """Extract the actual value from nested field value structure.
 
-        Priority for dict values: dropdownOptionId > data > pass-through.
-        The API should never return both keys, but if it does, dropdown wins.
+        Returns typed objects where possible:
+        - Dropdown values → :class:`DropdownOption`
+        - Text/number → primitive
+        - Location → dict (pass-through)
+        - Multi-value → list of extracted values
         """
         if value is None:
             return None
@@ -129,12 +132,17 @@ class FieldValues(AffinityModel):
 
         # Single value object with nested data
         if isinstance(value, dict):
-            # Dropdown option ID
+            # Dropdown option → typed DropdownOption
             if "dropdownOptionId" in value:
-                return value["dropdownOptionId"]
+                return DropdownOption(
+                    id=DropdownOptionId(value["dropdownOptionId"]),
+                    text=value.get("text", ""),
+                    rank=value.get("rank"),
+                    color=value.get("color"),
+                )
             # Standard data field (text, number, person ref, etc.)
             if "data" in value:
-                return value["data"]
+                return FieldValues._extract_value(value["data"])
             # Location or other complex type - return as-is
             return value
 
@@ -230,7 +238,7 @@ class DropdownOption(AffinityModel):
     id: DropdownOptionId
     text: str
     rank: int | None = None
-    color: int | None = None
+    color: int | str | None = None
 
 
 # =============================================================================
@@ -708,7 +716,10 @@ class ListEntryWithEntity(AffinityModel):
     type: str  # "person", "company", or "opportunity"
     entity: Person | Company | Opportunity | None = None
 
-    # Field values (requested-vs-not-requested preserved)
+    # Field values — always requested=False at entry level because the V2 API
+    # nests field data inside entity.fields, not here. Use entry.entity.fields
+    # to access field data, or pass entries to FieldResolver.get() which
+    # auto-delegates to the inner entity.
     fields: FieldValues = Field(default_factory=FieldValues, alias="fields")
     fields_raw: list[dict[str, Any]] | None = Field(default=None, exclude=True)
 

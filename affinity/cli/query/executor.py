@@ -75,20 +75,10 @@ def _set_nested_value(target: dict[str, Any], path: str, value: Any) -> None:
 
 
 def _extract_person_display_name(data: dict[str, Any]) -> str | None:
-    """Extract display name from a person reference dict.
+    """Extract display name from a person reference dict."""
+    from affinity.field_resolve_utils import resolve_person
 
-    Args:
-        data: Dict with firstName/lastName keys
-
-    Returns:
-        Combined name like "Jane Doe", or None if both empty
-    """
-    first = data.get("firstName", "")
-    last = data.get("lastName", "")
-    first = first.strip() if isinstance(first, str) else ""
-    last = last.strip() if isinstance(last, str) else ""
-    name = f"{first} {last}".strip()
-    return name if name else None
+    return resolve_person(data)
 
 
 def _normalize_list_entry_fields(record: dict[str, Any]) -> dict[str, Any]:

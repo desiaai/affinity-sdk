@@ -5,12 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-02-10
+
+### Changed
+- **Breaking:** `FieldValues.get_value()` now returns `DropdownOption` objects for dropdown/ranked-dropdown fields instead of raw `int` IDs. The `DropdownOption` has `.id`, `.text`, `.rank`, and `.color` attributes. This applies to all dropdown value types (`dropdown`, `ranked-dropdown`, `dropdown-multi`).
+- **Breaking:** Removed `FieldType.LIST_SPECIFIC`. Use `FieldType.LIST` instead. The V2 API uses `"list"` uniformly; `"list-specific"` was never a valid V2 value.
+- **Breaking:** `FieldResolver.get()` parameter `resolve_dropdowns: bool` replaced with `resolve: ResolveMode` (`ResolveMode.RAW` or `ResolveMode.TEXT`). `ResolveMode.TEXT` resolves dropdowns, persons, companies, and locations to human-readable strings.
+
+### Added
+- SDK: `ResolveMode` enum (`RAW`, `TEXT`) for controlling `FieldResolver` value resolution.
+- SDK: `ResolveMode.TEXT` now resolves person, company, location, and interaction fields to human-readable strings (not just dropdowns).
+- SDK: `FieldResolver` supports source-qualified field names (`"dealroom:Description"`) for disambiguating enrichment fields with the same display name. Ambiguous bare names emit a one-time warning at access time.
+- SDK: `validate_entity_field_types()` raises `ValueError` when `FieldType.LIST` is passed to company/person endpoints (which only accept `ENRICHED`, `GLOBAL`, `RELATIONSHIP_INTELLIGENCE`).
+- SDK: `DropdownOption.color` now accepts both `int` (V1) and `str` (V2) values.
+
+### Fixed
+- SDK: `FieldValues._extract_value()` now correctly recurses through `{"data": {...}}` envelopes for dropdown values, fixing ranked-dropdown and dropdown-multi extraction that previously returned the raw envelope dict.
+- SDK: Dropdown text resolution now works without V1 field metadata. Previously, `FieldResolver` built a lookup table from `FieldMetadata.dropdown_options` (V1-only; always empty on V2). Now text is read directly from the `DropdownOption` object extracted from the field value.
+- SDK: `async_check_unreplied()` replaced broken no-type `iter()` call with `asyncio.gather()` per-type pattern for parallel interaction fetching.
+- CLI: `_extract_person_display_name` and `_extract_person_name` now delegate to shared `resolve_person()` utility.
 
 ### Documentation
 - Added `FieldResolver` usage example to README "Working with Lists" section.
 - Added `FieldResolver` mention to getting-started guide field gotchas, linking to performance guide.
 - Replaced raw field count with `FieldResolver` usage in `examples/basic_usage.py`.
+- Updated field-types-and-values guide: dropdown types now document `DropdownOption` return type.
+- Added "List Entry Field Access" section to performance guide explaining `entry.entity.fields` delegation.
 
 ## [1.3.2] - 2026-02-08
 
