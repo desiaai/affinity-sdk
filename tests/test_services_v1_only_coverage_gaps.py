@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import httpx
 import pytest
 
@@ -74,7 +76,12 @@ class TestInteractionServiceCoverage:
         )
         service = InteractionService(http)
 
-        result = service.list(type=InteractionType.EMAIL, company_id=CompanyId(100))
+        result = service.list(
+            type=InteractionType.EMAIL,
+            company_id=CompanyId(100),
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            end_time=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        )
         assert len(result.data) == 1
 
     def test_list_with_opportunity_id_filter(self) -> None:
@@ -111,7 +118,12 @@ class TestInteractionServiceCoverage:
         )
         service = InteractionService(http)
 
-        result = service.list(type=InteractionType.EMAIL, opportunity_id=OpportunityId(200))
+        result = service.list(
+            type=InteractionType.EMAIL,
+            opportunity_id=OpportunityId(200),
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            end_time=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        )
         assert len(result.data) == 1
 
 

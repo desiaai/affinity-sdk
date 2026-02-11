@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-02-11
+
+### Changed
+- **Breaking:** `InteractionService.list()` and `AsyncInteractionService.list()` now require `start_time`, `end_time`, and at least one entity ID (`person_id`, `company_id`, or `opportunity_id`). Previously these were optional, but the API always rejected calls without them (422). Callers that were passing `None` for these parameters were already getting API errors; this change surfaces the requirement at the SDK level with clear error messages.
+- `InteractionService.list()` now validates date ranges: `start_time` must be before `end_time`, and the range must not exceed 365 days.
+
+### Added
+- SDK: `InteractionService.iter()` and `AsyncInteractionService.iter()` now automatically chunk date ranges exceeding 365 days. Large ranges are split into <=365-day chunks with synthetic cursors bridging them, making iteration seamless.
+- SDK: `iter()` defaults `end_time` to `datetime.now(timezone.utc)` when not provided, so callers only need to specify `start_time`.
+- SDK: Timezone consistency validation — mixing naive and timezone-aware datetimes raises `ValueError` with guidance instead of a raw `TypeError`.
+- SDK: `_chunk_date_range()` utility for splitting date ranges into API-compatible chunks.
+- CLI: Query executor now properly fetches interactions for `include` and `expand` operations. Previously, these paths called `interactions.list()` without required `type`/date parameters and silently returned empty results.
+
+### Fixed
+- SDK: Fixed falsy truthiness bugs in `InteractionService.list()` where `PersonId(0)`, `CompanyId(0)`, `page_size=0`, and empty `page_token=""` were incorrectly dropped. Changed `if x:` to `if x is not None:` for all optional parameters.
+
 ## [1.4.1] - 2026-02-11
 
 ### Fixed

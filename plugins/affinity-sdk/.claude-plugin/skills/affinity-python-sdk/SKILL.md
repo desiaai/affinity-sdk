@@ -166,7 +166,8 @@ with Affinity.from_env() as client:
     # Notes, reminders, interactions
     client.notes.list() / .create()
     client.reminders.list() / .create()
-    client.interactions.list()
+    client.interactions.list(type=..., start_time=..., end_time=..., person_id=...)
+    client.interactions.iter(type=..., start_time=..., person_id=...)  # auto-chunks, defaults end_time to now
 
     # Rate limits
     snapshot = client.rate_limits.snapshot()

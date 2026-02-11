@@ -10,6 +10,7 @@ import asyncio
 import builtins
 import contextlib
 import mimetypes
+import uuid
 from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -101,6 +102,27 @@ class PresignedUrl:
     content_type: str | None
     expires_in: int
     expires_at: datetime
+
+
+_MAX_INTERACTION_RANGE_DAYS = 365
+
+
+def _chunk_date_range(
+    start: datetime, end: datetime, max_days: int = _MAX_INTERACTION_RANGE_DAYS
+) -> list[tuple[datetime, datetime]]:
+    """Split a date range into <=max_days chunks.
+
+    Uses adjacent boundaries (next_start == previous_end).
+    The Affinity V1 API treats end_time as exclusive, so records at exact
+    boundary timestamps appear in the later chunk, not duplicated.
+    """
+    chunks: list[tuple[datetime, datetime]] = []
+    current = start
+    while current < end:
+        chunk_end = min(current + timedelta(days=max_days), end)
+        chunks.append((current, chunk_end))
+        current = chunk_end
+    return chunks
 
 
 # Sentinel for distinguishing None from "not provided" in get_for_entity()
@@ -514,48 +536,74 @@ class InteractionService:
         page_token: str | None = None,
     ) -> PaginatedResponse[Interaction]:
         """
-        Get interactions with optional filtering.
+        Get interactions with filtering.
 
-        The Affinity API requires:
-        - type: Interaction type (meeting, call, email, chat)
-        - start_time and end_time: Date range (max 1 year)
-        - One entity ID: person_id, company_id, or opportunity_id
+        All parameters are validated before calling the API:
+        - type, start_time, end_time are required
+        - At least one entity ID (person_id, company_id, or opportunity_id)
+        - Date range must be <= 365 days
+        - start_time must be before end_time
+
+        For ranges exceeding 365 days, use iter() which automatically chunks.
 
         Returns V1 paginated response with `data` and `next_page_token`.
 
         Raises:
-            ValueError: If type is not provided (required by Affinity V1 API)
+            ValueError: If required parameters are missing or invalid.
         """
         if type is None:
             raise ValueError(
                 "type is required for interactions API. "
                 "Use InteractionType.EMAIL, MEETING, CALL, or CHAT_MESSAGE."
             )
+        if start_time is None:
+            raise ValueError(
+                "start_time is required for interactions API. "
+                "Use iter() for automatic date range handling."
+            )
+        if end_time is None:
+            raise ValueError(
+                "end_time is required for interactions API. "
+                "Use iter() for automatic date range handling."
+            )
+        if (start_time.tzinfo is None) != (end_time.tzinfo is None):
+            raise ValueError(
+                "start_time and end_time must both be timezone-aware or both naive. "
+                "Recommended: use timezone-aware datetimes (e.g., datetime.now(timezone.utc))."
+            )
+        if end_time <= start_time:
+            raise ValueError("start_time must be before end_time.")
+        if (end_time - start_time) > timedelta(days=_MAX_INTERACTION_RANGE_DAYS):
+            raise ValueError(
+                f"Date range exceeds {_MAX_INTERACTION_RANGE_DAYS} days. "
+                f"Use iter() which automatically chunks large ranges."
+            )
+        if not any(x is not None for x in (person_id, company_id, opportunity_id)):
+            raise ValueError(
+                "At least one entity filter is required: person_id, company_id, or opportunity_id."
+            )
         params: dict[str, Any] = {"type": int(type)}
-        if start_time:
-            params["start_time"] = start_time.isoformat()
-        if end_time:
-            params["end_time"] = end_time.isoformat()
-        if person_id:
+        params["start_time"] = start_time.isoformat()
+        params["end_time"] = end_time.isoformat()
+        if person_id is not None:
             params["person_id"] = int(person_id)
-        if company_id:
+        if company_id is not None:
             params["organization_id"] = int(company_id)
-        if opportunity_id:
+        if opportunity_id is not None:
             params["opportunity_id"] = int(opportunity_id)
-        if page_size:
+        if page_size is not None:
             params["page_size"] = page_size
-        if page_token:
+        if page_token is not None:
             params["page_token"] = page_token
 
         data = self._client.get("/interactions", params=params or None, v1=True)
         items: Any = None
-        if type is not None:
-            if int(type) in (int(InteractionType.MEETING), int(InteractionType.CALL)):
-                items = data.get("events")
-            elif int(type) == int(InteractionType.CHAT_MESSAGE):
-                items = data.get("chat_messages")
-            elif int(type) == int(InteractionType.EMAIL):
-                items = data.get("emails")
+        if int(type) in (int(InteractionType.MEETING), int(InteractionType.CALL)):
+            items = data.get("events")
+        elif int(type) == int(InteractionType.CHAT_MESSAGE):
+            items = data.get("chat_messages")
+        elif int(type) == int(InteractionType.EMAIL):
+            items = data.get("emails")
 
         if items is None:
             items = (
@@ -633,28 +681,67 @@ class InteractionService:
         page_size: int | None = None,
     ) -> PageIterator[Interaction]:
         """
-        Iterate through all interactions with automatic pagination.
+        Iterate through all interactions with automatic pagination and date chunking.
 
-        The Affinity API requires:
-        - type: Interaction type (meeting, call, email, chat)
-        - start_time and end_time: Date range (max 1 year)
-        - One entity ID: person_id, company_id, or opportunity_id
+        Automatically splits date ranges exceeding 365 days into chunks
+        and bridges them with synthetic cursors for seamless iteration.
+
+        Args:
+            type: Interaction type (required).
+            start_time: Start of date range (required).
+            end_time: End of date range (defaults to now if not provided).
+            person_id: Filter by person.
+            company_id: Filter by company.
+            opportunity_id: Filter by opportunity.
+            page_size: Page size for API calls.
 
         Returns:
             PageIterator that yields Interaction objects
         """
+        if type is None:
+            raise ValueError(
+                "type is required for interactions API. "
+                "Use InteractionType.EMAIL, MEETING, CALL, or CHAT_MESSAGE."
+            )
+        if start_time is None:
+            raise ValueError("start_time is required for interactions API.")
+        if not any(x is not None for x in (person_id, company_id, opportunity_id)):
+            raise ValueError(
+                "At least one entity filter is required: person_id, company_id, or opportunity_id."
+            )
+        resolved_end = end_time if end_time is not None else datetime.now(timezone.utc)
+        if (start_time.tzinfo is None) != (resolved_end.tzinfo is None):
+            raise ValueError(
+                "start_time and end_time must both be timezone-aware or both naive. "
+                "Recommended: use timezone-aware datetimes (e.g., datetime.now(timezone.utc))."
+            )
+        if resolved_end <= start_time:
+            raise ValueError("start_time must be before end_time.")
+        chunks = _chunk_date_range(start_time, resolved_end)
+        chunk_index = 0
+        chunk_sentinel = f"__chunk_{uuid.uuid4().hex}__"
 
         def fetch_page(cursor: str | None) -> PaginatedResponse[Interaction]:
-            return self.list(
+            nonlocal chunk_index
+            if cursor == chunk_sentinel:
+                chunk_index += 1
+                cursor = None
+            if chunk_index >= len(chunks):
+                return PaginatedResponse[Interaction](data=[])
+            c_start, c_end = chunks[chunk_index]
+            response = self.list(
                 type=type,
-                start_time=start_time,
-                end_time=end_time,
+                start_time=c_start,
+                end_time=c_end,
                 person_id=person_id,
                 company_id=company_id,
                 opportunity_id=opportunity_id,
                 page_size=page_size,
                 page_token=cursor,
             )
+            if response.next_cursor is None and chunk_index < len(chunks) - 1:
+                response.next_page_token = chunk_sentinel
+            return response
 
         return PageIterator(fetch_page)
 
@@ -2053,31 +2140,54 @@ class AsyncInteractionService:
                 "type is required for interactions API. "
                 "Use InteractionType.EMAIL, MEETING, CALL, or CHAT_MESSAGE."
             )
+        if start_time is None:
+            raise ValueError(
+                "start_time is required for interactions API. "
+                "Use iter() for automatic date range handling."
+            )
+        if end_time is None:
+            raise ValueError(
+                "end_time is required for interactions API. "
+                "Use iter() for automatic date range handling."
+            )
+        if (start_time.tzinfo is None) != (end_time.tzinfo is None):
+            raise ValueError(
+                "start_time and end_time must both be timezone-aware or both naive. "
+                "Recommended: use timezone-aware datetimes (e.g., datetime.now(timezone.utc))."
+            )
+        if end_time <= start_time:
+            raise ValueError("start_time must be before end_time.")
+        if (end_time - start_time) > timedelta(days=_MAX_INTERACTION_RANGE_DAYS):
+            raise ValueError(
+                f"Date range exceeds {_MAX_INTERACTION_RANGE_DAYS} days. "
+                f"Use iter() which automatically chunks large ranges."
+            )
+        if not any(x is not None for x in (person_id, company_id, opportunity_id)):
+            raise ValueError(
+                "At least one entity filter is required: person_id, company_id, or opportunity_id."
+            )
         params: dict[str, Any] = {"type": int(type)}
-        if start_time:
-            params["start_time"] = start_time.isoformat()
-        if end_time:
-            params["end_time"] = end_time.isoformat()
-        if person_id:
+        params["start_time"] = start_time.isoformat()
+        params["end_time"] = end_time.isoformat()
+        if person_id is not None:
             params["person_id"] = int(person_id)
-        if company_id:
+        if company_id is not None:
             params["organization_id"] = int(company_id)
-        if opportunity_id:
+        if opportunity_id is not None:
             params["opportunity_id"] = int(opportunity_id)
-        if page_size:
+        if page_size is not None:
             params["page_size"] = page_size
-        if page_token:
+        if page_token is not None:
             params["page_token"] = page_token
 
         data = await self._client.get("/interactions", params=params or None, v1=True)
         items: Any = None
-        if type is not None:
-            if int(type) in (int(InteractionType.MEETING), int(InteractionType.CALL)):
-                items = data.get("events")
-            elif int(type) == int(InteractionType.CHAT_MESSAGE):
-                items = data.get("chat_messages")
-            elif int(type) == int(InteractionType.EMAIL):
-                items = data.get("emails")
+        if int(type) in (int(InteractionType.MEETING), int(InteractionType.CALL)):
+            items = data.get("events")
+        elif int(type) == int(InteractionType.CHAT_MESSAGE):
+            items = data.get("chat_messages")
+        elif int(type) == int(InteractionType.EMAIL):
+            items = data.get("emails")
 
         if items is None:
             items = (
@@ -2147,28 +2257,67 @@ class AsyncInteractionService:
         page_size: int | None = None,
     ) -> AsyncPageIterator[Interaction]:
         """
-        Iterate through all interactions with automatic pagination.
+        Iterate through all interactions with automatic pagination and date chunking.
 
-        The Affinity API requires:
-        - type: Interaction type (meeting, call, email, chat)
-        - start_time and end_time: Date range (max 1 year)
-        - One entity ID: person_id, company_id, or opportunity_id
+        Automatically splits date ranges exceeding 365 days into chunks
+        and bridges them with synthetic cursors for seamless iteration.
+
+        Args:
+            type: Interaction type (required).
+            start_time: Start of date range (required).
+            end_time: End of date range (defaults to now if not provided).
+            person_id: Filter by person.
+            company_id: Filter by company.
+            opportunity_id: Filter by opportunity.
+            page_size: Page size for API calls.
 
         Returns:
             AsyncPageIterator that yields Interaction objects
         """
+        if type is None:
+            raise ValueError(
+                "type is required for interactions API. "
+                "Use InteractionType.EMAIL, MEETING, CALL, or CHAT_MESSAGE."
+            )
+        if start_time is None:
+            raise ValueError("start_time is required for interactions API.")
+        if not any(x is not None for x in (person_id, company_id, opportunity_id)):
+            raise ValueError(
+                "At least one entity filter is required: person_id, company_id, or opportunity_id."
+            )
+        resolved_end = end_time if end_time is not None else datetime.now(timezone.utc)
+        if (start_time.tzinfo is None) != (resolved_end.tzinfo is None):
+            raise ValueError(
+                "start_time and end_time must both be timezone-aware or both naive. "
+                "Recommended: use timezone-aware datetimes (e.g., datetime.now(timezone.utc))."
+            )
+        if resolved_end <= start_time:
+            raise ValueError("start_time must be before end_time.")
+        chunks = _chunk_date_range(start_time, resolved_end)
+        chunk_index = 0
+        chunk_sentinel = f"__chunk_{uuid.uuid4().hex}__"
 
         async def fetch_page(cursor: str | None) -> PaginatedResponse[Interaction]:
-            return await self.list(
+            nonlocal chunk_index
+            if cursor == chunk_sentinel:
+                chunk_index += 1
+                cursor = None
+            if chunk_index >= len(chunks):
+                return PaginatedResponse[Interaction](data=[])
+            c_start, c_end = chunks[chunk_index]
+            response = await self.list(
                 type=type,
-                start_time=start_time,
-                end_time=end_time,
+                start_time=c_start,
+                end_time=c_end,
                 person_id=person_id,
                 company_id=company_id,
                 opportunity_id=opportunity_id,
                 page_size=page_size,
                 page_token=cursor,
             )
+            if response.next_cursor is None and chunk_index < len(chunks) - 1:
+                response.next_page_token = chunk_sentinel
+            return response
 
         return AsyncPageIterator(fetch_page)
 

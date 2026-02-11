@@ -280,7 +280,12 @@ async def test_async_interaction_service_crud() -> None:
     client = _async_client(httpx.MockTransport(handler))
     async with client:
         svc = AsyncInteractionService(client)
-        page = await svc.list(type=InteractionType.MEETING)
+        page = await svc.list(
+            type=InteractionType.MEETING,
+            person_id=PersonId(1),
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            end_time=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        )
         assert page.data[0].id == InteractionId(6)
         assert page.next_page_token == "next"
         item = await svc.get(InteractionId(6), InteractionType.MEETING)

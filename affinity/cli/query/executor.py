@@ -7,12 +7,16 @@ This module is CLI-only and NOT part of the public SDK API.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
+
+import httpx
+import pydantic
 
 from ...exceptions import AuthenticationError, AuthorizationError, NotFoundError
 from ..interaction_utils import resolve_interaction_names_async, transform_interaction_data
@@ -46,8 +50,79 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from affinity import AsyncAffinity
     from affinity.models.pagination import PaginationProgress
+    from affinity.services.v1_only import AsyncInteractionService
 
     from .schema import EntitySchema
+
+from affinity.types import InteractionType
+
+_ALL_INTERACTION_TYPES = [
+    InteractionType.EMAIL,
+    InteractionType.MEETING,
+    InteractionType.CALL,
+    InteractionType.CHAT_MESSAGE,
+]
+_DEFAULT_INTERACTION_LOOKBACK_DAYS = 90
+
+
+async def _fetch_interactions_for_entity(
+    service: AsyncInteractionService,
+    entity_filter: dict[str, Any],
+    *,
+    days: int = _DEFAULT_INTERACTION_LOOKBACK_DAYS,
+    limit: int = 100,
+    semaphore: asyncio.Semaphore | None = None,
+    rate_limiter: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch interactions across all types for a single entity.
+
+    Args:
+        service: AsyncInteractionService instance
+        entity_filter: e.g. {"person_id": PersonId(123)}
+        days: Lookback window (default 90)
+        limit: Max interactions to return
+        semaphore: Optional concurrency limiter
+        rate_limiter: Optional rate limiter
+    """
+    from datetime import datetime, timedelta, timezone
+
+    end_t = datetime.now(timezone.utc)
+    start_t = end_t - timedelta(days=days)
+    results: list[dict[str, Any]] = []
+    for itype in _ALL_INTERACTION_TYPES:
+        if len(results) >= limit:
+            break
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                if semaphore is not None:
+                    await stack.enter_async_context(semaphore)
+                if rate_limiter is not None:
+                    await stack.enter_async_context(rate_limiter)
+                async for i in service.iter(
+                    **entity_filter,
+                    type=itype,
+                    start_time=start_t,
+                    end_time=end_t,
+                ):
+                    results.append(i.model_dump(mode="json", by_alias=True))
+                    if len(results) >= limit:
+                        break
+        except (AuthenticationError, AuthorizationError):
+            raise
+        except (
+            httpx.HTTPStatusError,
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            pydantic.ValidationError,
+        ) as e:
+            logger.warning(
+                "Failed to fetch %s interactions for %s: %s",
+                itype.name,
+                entity_filter,
+                e,
+            )
+            continue
+    return results
 
 
 # =============================================================================
@@ -1886,19 +1961,51 @@ class QueryExecutor:
             # Collect all entity IDs
             entity_ids: list[int] = [r["id"] for r in ctx.records if isinstance(r.get("id"), int)]
 
-            for ent_id in entity_ids:
-                try:
-                    filter_kwargs = {rel.filter_field: ent_id}
-                    response = await service.list(**filter_kwargs)
-                    ent_records: list[dict[str, Any]] = []
-                    for item in response.data:
-                        record = item.model_dump(mode="json", by_alias=True)
-                        ent_records.append(record)
-                        included_records.append(record)
-                    parent_mapping[ent_id] = ent_records
-                except Exception:
-                    parent_mapping[ent_id] = []
-                    continue
+            if rel.method_or_service == "interactions":
+                # Extract include config for configurable days/limit
+                include_config = None
+                if ctx.query.include:
+                    for item in ctx.query.include:
+                        if isinstance(item, dict):
+                            for key, val in item.items():
+                                if key == step.relationship:
+                                    from .models import IncludeConfig
+
+                                    include_config = (
+                                        IncludeConfig.model_validate(val) if val else None
+                                    )
+                                    break
+                i_days = (
+                    include_config.days
+                    if include_config and include_config.days
+                    else _DEFAULT_INTERACTION_LOOKBACK_DAYS
+                )
+                i_limit = include_config.limit if include_config and include_config.limit else 100
+                assert rel.filter_field is not None  # schema guarantees this for global_service
+                for ent_id in entity_ids:
+                    i_records = await _fetch_interactions_for_entity(
+                        service,
+                        {rel.filter_field: ent_id},
+                        days=i_days,
+                        limit=i_limit,
+                        rate_limiter=self.rate_limiter,
+                    )
+                    parent_mapping[ent_id] = i_records
+                    included_records.extend(i_records)
+            else:
+                for ent_id in entity_ids:
+                    try:
+                        filter_kwargs = {rel.filter_field: ent_id}
+                        response = await service.list(**filter_kwargs)
+                        ent_records: list[dict[str, Any]] = []
+                        for item in response.data:
+                            record = item.model_dump(mode="json", by_alias=True)  # type: ignore[attr-defined]
+                            ent_records.append(record)
+                            included_records.append(record)
+                        parent_mapping[ent_id] = ent_records
+                    except Exception:
+                        parent_mapping[ent_id] = []
+                        continue
 
         elif rel.fetch_strategy == "list_entry_indirect":
             # For listEntries: fetch related entities via entity associations
@@ -2331,11 +2438,19 @@ class QueryExecutor:
                         return []
 
                     try:
-                        filter_kwargs = {rel_info.filter_field: record_id}
-                        response = await service.list(**filter_kwargs)
-                        related = [
-                            item.model_dump(mode="json", by_alias=True) for item in response.data
-                        ]
+                        if rel_info.method_or_service == "interactions":
+                            related = await _fetch_interactions_for_entity(
+                                service,
+                                {rel_info.filter_field: record_id},
+                                rate_limiter=self.rate_limiter,
+                            )
+                        else:
+                            filter_kwargs = {rel_info.filter_field: record_id}
+                            response = await service.list(**filter_kwargs)
+                            related = [
+                                item.model_dump(mode="json", by_alias=True)
+                                for item in response.data
+                            ]
                     except (AuthenticationError, AuthorizationError):
                         # Let auth errors propagate - these indicate real problems
                         raise
@@ -2756,17 +2871,10 @@ class QueryExecutor:
             days: Lookback window in days (default 90)
             progress_callback: Optional callback(current, total) for progress emission
         """
-        from datetime import datetime, timedelta, timezone
-
         from affinity.types import CompanyId, OpportunityId, PersonId
 
-        from ..date_utils import chunk_date_range
-
         effective_limit = limit if limit is not None else 100
-        effective_days = days if days is not None else 90
-
-        end_time = datetime.now(timezone.utc)
-        start_time = end_time - timedelta(days=effective_days)
+        effective_days = days if days is not None else _DEFAULT_INTERACTION_LOOKBACK_DAYS
 
         async def get_interactions_for_entry(
             entry: dict[str, Any],
@@ -2789,27 +2897,14 @@ class QueryExecutor:
             else:
                 return (entry_id, [])
 
-            interactions: list[dict[str, Any]] = []
-            count = 0
-
-            # Use chunk_date_range() to handle ranges > 365 days
-            for chunk_start, chunk_end in chunk_date_range(start_time, end_time):
-                if count >= effective_limit:
-                    break
-                async with semaphore, self.rate_limiter:
-                    try:
-                        async for i in self.client.interactions.iter(
-                            **base_kwargs,
-                            start_time=chunk_start,
-                            end_time=chunk_end,
-                        ):
-                            interactions.append(i.model_dump(mode="json", by_alias=True))
-                            count += 1
-                            if count >= effective_limit:
-                                break
-                    except Exception:
-                        break  # Stop on error
-
+            interactions = await _fetch_interactions_for_entity(
+                self.client.interactions,
+                base_kwargs,
+                days=effective_days,
+                limit=effective_limit,
+                semaphore=semaphore,
+                rate_limiter=self.rate_limiter,
+            )
             return (entry_id, interactions)
 
         # Direct fetch with incremental progress (no ID→record indirection needed)

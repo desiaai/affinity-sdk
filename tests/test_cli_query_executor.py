@@ -4200,6 +4200,19 @@ class TestQuantifierIntegration:
             return result
 
         mock_interactions.list = mock_list
+
+        # _fetch_interactions_for_entity uses iter() which yields from async generator
+        from affinity.models.pagination import AsyncPageIterator, PaginatedResponse
+
+        def mock_iter(**kwargs):
+            async def fetch_page(_cursor):
+                result = await mock_list(**kwargs)
+                items = result.data
+                return PaginatedResponse(data=items)
+
+            return AsyncPageIterator(fetch_page)
+
+        mock_interactions.iter = mock_iter
         mock_client.interactions = mock_interactions
 
         query = Query(
