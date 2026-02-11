@@ -89,6 +89,43 @@ def _run_update_check_on_exit(state_dir: Path) -> None:
         pass  # Never crash on update check failure
 
 
+def _json_requested_in_args(args: list[str]) -> bool:
+    """Check if --json or --output json appears in raw CLI args."""
+    if "--json" in args:
+        return True
+    for i, arg in enumerate(args):
+        if arg == "--output" and i + 1 < len(args) and args[i + 1] == "json":
+            return True
+        if arg == "--output=json":
+            return True
+    return False
+
+
+def _emit_click_error_as_json(exc: click.ClickException) -> None:
+    """Emit a JSON error envelope for a Click-level exception."""
+    import time
+
+    from .context import build_result
+    from .results import CommandContext, ErrorInfo
+    from .runner import _emit_json
+
+    error_type = "usage_error" if isinstance(exc, click.UsageError) else "error"
+    msg = exc.format_message()
+    hint = "Run 'xaffinity -h' to see available commands." if "No such command" in msg else None
+
+    result = build_result(
+        ok=False,
+        command=CommandContext(name="xaffinity"),
+        started_at=time.time(),
+        data=None,
+        warnings=[],
+        profile=None,
+        rate_limit=None,
+        error=ErrorInfo(type=error_type, message=msg, hint=hint),
+    )
+    _emit_json(result)
+
+
 class _RootGroupMixin:
     """Mixin that adds --help --json support to the root CLI group."""
 
@@ -104,15 +141,37 @@ class _RootGroupMixin:
         super().format_help(ctx, formatter)  # type: ignore[misc]
 
     def main(self, *args: Any, **kwargs: Any) -> Any:
-        """Override main to handle --help --json before Click processes args."""
-        # Check for --help --json combination early
-        argv = sys.argv[1:]
-        if ("--help" in argv or "-h" in argv) and "--json" in argv:
-            # Create a minimal context and emit JSON help
+        """Override to handle --help --json and JSON error envelopes."""
+        # Resolve effective args (explicit args from caller, or sys.argv)
+        raw_args: list[str] | None = args[0] if args else kwargs.get("args")
+        effective_args = list(raw_args) if raw_args is not None else sys.argv[1:]
+
+        # Handle --help --json early (existing logic)
+        if ("--help" in effective_args or "-h" in effective_args) and "--json" in effective_args:
             with self.make_context("xaffinity", []) as ctx:  # type: ignore[attr-defined]
                 from .help_json import emit_help_json_and_exit
 
                 emit_help_json_and_exit(ctx)
+
+        # When JSON is requested, force standalone_mode=False so Click re-raises
+        # ClickException and Abort instead of printing plain text + sys.exit().
+        if _json_requested_in_args(effective_args):
+            caller_standalone = kwargs.get("standalone_mode", True)
+            kwargs["standalone_mode"] = False
+            try:
+                rv = super().main(*args, **kwargs)  # type: ignore[misc]
+                if caller_standalone:
+                    raise SystemExit(0 if rv is None else rv)
+                return rv
+            except click.ClickException as exc:
+                if caller_standalone:
+                    _emit_click_error_as_json(exc)
+                    raise SystemExit(exc.exit_code) from exc
+                raise
+            except click.Abort as abort:
+                if caller_standalone:
+                    raise SystemExit(1) from abort
+                raise
 
         return super().main(*args, **kwargs)  # type: ignore[misc]
 

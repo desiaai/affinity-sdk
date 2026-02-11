@@ -48,6 +48,7 @@ from affinity.hooks import (
 from affinity.models.types import V1_BASE_URL, V2_BASE_URL
 from affinity.policies import Policies, WritePolicy
 
+from .click_compat import click
 from .config import LoadedConfig, ProfileConfig, config_file_permission_warnings, load_config
 from .errors import CLIError
 from .logging import set_redaction_api_key
@@ -638,6 +639,22 @@ def normalize_exception(exc: Exception, *, verbosity: int = 0) -> CLIError:
             error_type="api_error",
             exit_code=1,
             details=_details_for_affinity_error(exc, verbosity=verbosity),
+            cause=exc,
+        )
+
+    if isinstance(exc, click.UsageError):
+        return CLIError(
+            exc.format_message(),
+            error_type="usage_error",
+            exit_code=2,
+            cause=exc,
+        )
+
+    if isinstance(exc, click.ClickException):
+        return CLIError(
+            exc.format_message(),
+            error_type="error",
+            exit_code=getattr(exc, "exit_code", 1),
             cause=exc,
         )
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-02-11
+
+### Fixed
+- CLI: Click-level errors (unknown commands, invalid options) now emit a proper JSON error envelope (`{"ok": false, "error": {...}}`) when `--json` or `--output json` is active. Previously, stdout was empty and only plain text went to stderr, breaking downstream JSON parsers.
+- CLI: `normalize_exception()` now handles `click.UsageError` (→ `usage_error`, exit code 2) and `click.ClickException` (→ `error`, exit code from exception) instead of misclassifying them as `internal_error`.
+
 ## [1.4.0] - 2026-02-10
 
 ### Changed
