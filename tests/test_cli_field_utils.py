@@ -40,6 +40,38 @@ def dropdown_multi_resolver() -> CLIFieldResolver:
     return CLIFieldResolver(fields)
 
 
+@pytest.fixture
+def v1_dropdown_multi_resolver() -> CLIFieldResolver:
+    """Simulate V1 API: value_type=DROPDOWN with allows_multiple=True.
+
+    V1 returns value_type=2 (mapped to "dropdown") for both single and multi
+    dropdown fields, relying on allows_multiple=True to distinguish them.
+    """
+    fields = [
+        FieldMetadata(
+            id=FieldId(2166604),
+            name="Sourced by",
+            value_type=FieldValueType.DROPDOWN,
+            allows_multiple=True,
+            dropdown_options=[
+                DropdownOption(id=DropdownOptionId(5064548), text="YG"),
+                DropdownOption(id=DropdownOptionId(5064549), text="AB"),
+            ],
+        ),
+        FieldMetadata(
+            id=FieldId(100),
+            name="Status",
+            value_type=FieldValueType.DROPDOWN,
+            allows_multiple=False,
+            dropdown_options=[
+                DropdownOption(id=DropdownOptionId(200), text="Active"),
+                DropdownOption(id=DropdownOptionId(201), text="Closed"),
+            ],
+        ),
+    ]
+    return CLIFieldResolver(fields)
+
+
 @pytest.mark.req("CLI-DROPDOWN-MULTI-FIX")
 class TestResolveDropdownValue:
     """Tests for resolve_dropdown_value with dropdown-multi fields."""
@@ -124,3 +156,58 @@ class TestResolveDropdownValue:
 
         with pytest.raises(CLIError, match="only supported for dropdown-multi"):
             dropdown_multi_resolver.resolve_dropdown_value("field-100", ["Active"])
+
+
+@pytest.mark.req("CLI-DROPDOWN-MULTI-FIX")
+class TestV1DropdownMultiPromotion:
+    """Tests for V1 API path: value_type=DROPDOWN with allows_multiple=True.
+
+    V1 API returns value_type="dropdown" for both single and multi dropdown
+    fields.  resolve_dropdown_value must promote to "dropdown-multi" when
+    allows_multiple=True so the API payload format is correct.
+    """
+
+    def test_v1_dropdown_multi_text_wraps_in_array(
+        self, v1_dropdown_multi_resolver: CLIFieldResolver
+    ) -> None:
+        """V1 dropdown+allows_multiple=True should wrap in array and return 'dropdown-multi'."""
+        value, type_str = v1_dropdown_multi_resolver.resolve_dropdown_value("field-2166604", "YG")
+        assert type_str == "dropdown-multi"
+        assert value == [{"dropdownOptionId": 5064548}]
+
+    def test_v1_dropdown_multi_id_wraps_in_array(
+        self, v1_dropdown_multi_resolver: CLIFieldResolver
+    ) -> None:
+        """V1 dropdown+allows_multiple=True should wrap numeric ID in array."""
+        value, type_str = v1_dropdown_multi_resolver.resolve_dropdown_value(
+            "field-2166604", "5064548"
+        )
+        assert type_str == "dropdown-multi"
+        assert value == [{"dropdownOptionId": 5064548}]
+
+    def test_v1_dropdown_multi_list_value(
+        self, v1_dropdown_multi_resolver: CLIFieldResolver
+    ) -> None:
+        """V1 dropdown+allows_multiple=True should handle list values."""
+        value, type_str = v1_dropdown_multi_resolver.resolve_dropdown_value(
+            "field-2166604", ["YG", "AB"]
+        )
+        assert type_str == "dropdown-multi"
+        assert value == [{"dropdownOptionId": 5064548}, {"dropdownOptionId": 5064549}]
+
+    def test_v1_single_dropdown_unchanged(
+        self, v1_dropdown_multi_resolver: CLIFieldResolver
+    ) -> None:
+        """V1 dropdown+allows_multiple=False should still return single object."""
+        value, type_str = v1_dropdown_multi_resolver.resolve_dropdown_value("field-100", "Active")
+        assert type_str == "dropdown"
+        assert value == {"dropdownOptionId": 200}
+
+    def test_v1_single_dropdown_rejects_list(
+        self, v1_dropdown_multi_resolver: CLIFieldResolver
+    ) -> None:
+        """V1 single dropdown should reject list values."""
+        from affinity.cli.errors import CLIError
+
+        with pytest.raises(CLIError, match="only supported for dropdown-multi"):
+            v1_dropdown_multi_resolver.resolve_dropdown_value("field-100", ["Active"])

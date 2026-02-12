@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-02-12
+
+### Fixed
+- CLI: `--set` and `--append` now work correctly for dropdown-multi fields when V1 API returns `value_type="dropdown"` with `allows_multiple=True`. Previously, `resolve_dropdown_value` only checked `value_type` (not `allows_multiple`) to determine the payload format, sending `{"dropdownOptionId": ID}` instead of `[{"dropdownOptionId": ID}]`.
+- CLI: `--append` for dropdown-multi fields now merges with existing values instead of replacing them. The V2 API replaces the entire option array on POST, so `--append` now reads existing selections, adds the new option (deduplicating), and sends the combined array.
+
 ## [1.5.0] - 2026-02-11
 
 ### Changed

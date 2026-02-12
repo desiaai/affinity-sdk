@@ -320,6 +320,12 @@ class FieldResolver:
         value_type = field.value_type
         type_str = value_type.value if isinstance(value_type, FieldValueType) else str(value_type)
 
+        # V1 API returns value_type="dropdown" for both single and multi dropdown
+        # fields, relying on allows_multiple to distinguish them.  Promote to
+        # "dropdown-multi" so the correct API payload format is used downstream.
+        if type_str == "dropdown" and field.allows_multiple:
+            type_str = "dropdown-multi"
+
         # Handle dropdown, ranked-dropdown, and dropdown-multi fields
         # V2 API expects:
         #   dropdown/ranked-dropdown: {"data": {"dropdownOptionId": ID}, "type": "..."}

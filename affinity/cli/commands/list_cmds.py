@@ -3364,7 +3364,6 @@ def list_entry_field(
         for field_spec, value in append_values:
             target_field_id = resolved_fields[field_spec]  # Already resolved upfront
 
-            # Just create new value (no delete = append)
             try:
                 parsed_field_id = FieldId(target_field_id)
             except ValueError:
@@ -3372,6 +3371,40 @@ def list_entry_field(
 
             # Resolve dropdown values (text → option ID) and get correct value_type
             resolved_value, value_type_str = resolver.resolve_dropdown_value(target_field_id, value)
+
+            # For dropdown-multi, the V2 API replaces the entire array on POST.
+            # To truly append, merge new option(s) with existing ones.
+            if value_type_str == "dropdown-multi" and isinstance(resolved_value, list):
+                existing_for_field = find_field_values_for_field(
+                    field_values=existing_values_serialized,
+                    field_id=target_field_id,
+                )
+                # Resolve existing text values to dropdownOptionIds
+                existing_option_ids: set[int] = set()
+                existing_options: list[dict[str, int]] = []
+                for fv in existing_for_field:
+                    fv_value = fv.get("value")
+                    if fv_value is None:
+                        continue
+                    # Field values API returns text (e.g. "YG"), not option objects
+                    existing_resolved, _ = resolver.resolve_dropdown_value(
+                        target_field_id, str(fv_value)
+                    )
+                    if isinstance(existing_resolved, list):
+                        for opt in existing_resolved:
+                            if isinstance(opt, dict):
+                                opt_id = opt.get("dropdownOptionId")
+                                if opt_id is not None and opt_id not in existing_option_ids:
+                                    existing_option_ids.add(opt_id)
+                                    existing_options.append(opt)
+                # Merge: existing + new (skip duplicates)
+                for opt in resolved_value:
+                    if isinstance(opt, dict):
+                        opt_id = opt.get("dropdownOptionId")
+                        if opt_id is not None and opt_id not in existing_option_ids:
+                            existing_option_ids.add(opt_id)
+                            existing_options.append(opt)
+                resolved_value = existing_options
 
             result = entries.update_field_value(
                 ListEntryId(entry_id), parsed_field_id, resolved_value, value_type=value_type_str
