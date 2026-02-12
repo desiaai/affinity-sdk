@@ -89,3 +89,38 @@ class TestResolveDropdownValue:
         value, type_str = dropdown_multi_resolver.resolve_dropdown_value("field-300", "some text")
         assert type_str == "text"
         assert value == "some text"
+
+    def test_dropdown_multi_list_value_resolves_all(
+        self, dropdown_multi_resolver: CLIFieldResolver
+    ) -> None:
+        """List value from --set-json resolves each element for dropdown-multi."""
+        value, type_str = dropdown_multi_resolver.resolve_dropdown_value(
+            "field-2166604", ["YG", "AB"]
+        )
+        assert type_str == "dropdown-multi"
+        assert value == [{"dropdownOptionId": 5064548}, {"dropdownOptionId": 5064549}]
+
+    def test_dropdown_multi_list_single_element(
+        self, dropdown_multi_resolver: CLIFieldResolver
+    ) -> None:
+        """Single-element list resolves to single-element array."""
+        value, type_str = dropdown_multi_resolver.resolve_dropdown_value("field-2166604", ["YG"])
+        assert type_str == "dropdown-multi"
+        assert value == [{"dropdownOptionId": 5064548}]
+
+    def test_dropdown_multi_list_with_ids(self, dropdown_multi_resolver: CLIFieldResolver) -> None:
+        """List of numeric IDs resolves correctly."""
+        value, type_str = dropdown_multi_resolver.resolve_dropdown_value(
+            "field-2166604", ["5064548", "5064549"]
+        )
+        assert type_str == "dropdown-multi"
+        assert value == [{"dropdownOptionId": 5064548}, {"dropdownOptionId": 5064549}]
+
+    def test_list_value_rejected_for_regular_dropdown(
+        self, dropdown_multi_resolver: CLIFieldResolver
+    ) -> None:
+        """List values should be rejected for non-multi dropdown fields."""
+        from affinity.cli.errors import CLIError
+
+        with pytest.raises(CLIError, match="only supported for dropdown-multi"):
+            dropdown_multi_resolver.resolve_dropdown_value("field-100", ["Active"])

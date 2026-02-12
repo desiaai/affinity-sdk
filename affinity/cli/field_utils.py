@@ -286,13 +286,14 @@ class FieldResolver:
         return None
 
     def resolve_dropdown_value(
-        self, field_id: str, value: str
-    ) -> tuple[list[dict[str, int]] | dict[str, int] | str, str]:
+        self, field_id: str, value: str | list[str]
+    ) -> tuple[list[dict[str, int]] | dict[str, int] | str | list[str], str]:
         """Resolve a dropdown value (text or ID) to its option ID and value_type.
 
         For dropdown/ranked-dropdown/dropdown-multi fields, accepts either:
         - Dropdown option text (e.g., "In Progress") → returns (option_obj, value_type)
         - Dropdown option ID (e.g., "304089" or 304089) → returns (option_obj, value_type)
+        - A list of texts/IDs for dropdown-multi (from --set-json) → resolves each element
 
         For dropdown-multi, the resolved option is wrapped in a list per V2 API:
         ``[{"dropdownOptionId": ID}]`` instead of ``{"dropdownOptionId": ID}``.
@@ -301,7 +302,7 @@ class FieldResolver:
 
         Args:
             field_id: The field ID.
-            value: The value to resolve (text or ID).
+            value: The value to resolve (text, ID, or list of texts/IDs for multi).
 
         Returns:
             Tuple of (resolved_value, value_type_string).
@@ -324,10 +325,31 @@ class FieldResolver:
         #   dropdown/ranked-dropdown: {"data": {"dropdownOptionId": ID}, "type": "..."}
         #   dropdown-multi: {"data": [{"dropdownOptionId": ID}], "type": "dropdown-multi"}
         if type_str in ("dropdown", "ranked-dropdown", "dropdown-multi"):
+            # For dropdown-multi, accept list values (e.g., from --set-json ["AN", "YG"])
+            if isinstance(value, list):
+                if type_str != "dropdown-multi":
+                    raise CLIError(
+                        f"List values are only supported for dropdown-multi fields, "
+                        f"but '{field.name}' is '{type_str}'.",
+                        exit_code=2,
+                        error_type="validation_error",
+                    )
+                all_resolved: list[dict[str, int]] = []
+                for item in value:
+                    item_result, _ = self.resolve_dropdown_value(field_id, str(item))
+                    # Single-element resolve for dropdown-multi returns [{"dropdownOptionId": ID}]
+                    if isinstance(item_result, dict):
+                        all_resolved.append(item_result)
+                    elif isinstance(item_result, list):
+                        for entry in item_result:
+                            if isinstance(entry, dict):
+                                all_resolved.append(entry)
+                return all_resolved, type_str
+
             options = field.dropdown_options
 
             # First, try to match by option text (case-insensitive)
-            value_lower = value.strip().lower()
+            value_lower = str(value).strip().lower()
             for opt in options:
                 if opt.text.lower() == value_lower:
                     resolved: dict[str, int] = {"dropdownOptionId": int(opt.id)}
