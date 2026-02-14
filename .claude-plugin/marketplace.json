@@ -9,18 +9,33 @@
   "plugins": [
     {
       "name": "affinity-crm-sdk-unofficial",
+      "description": "Python SDK for Affinity CRM — write scripts to search, export, filter, and automate CRM data with typed IDs, async/sync clients, and built-in pagination",
+      "author": {
+        "name": "Yaniv Golan",
+        "email": "yaniv@golan.name"
+      },
       "source": "./plugins/affinity-sdk/.claude-plugin",
-      "description": "Python SDK for Affinity CRM - typed IDs, async support, pagination patterns for developers"
+      "category": "development"
     },
     {
       "name": "affinity-crm-cli-xaffinity-unofficial",
+      "description": "Affinity CRM command-line tools — search contacts, export lists to CSV, filter pipelines, and manage CRM data via xaffinity",
+      "author": {
+        "name": "Yaniv Golan",
+        "email": "yaniv@golan.name"
+      },
       "source": "./plugins/xaffinity-cli/.claude-plugin",
-      "description": "Command-line interface for Affinity CRM - search, export, filter CRM data via xaffinity commands"
+      "category": "productivity"
     },
     {
       "name": "affinity-crm-mcp-unofficial",
+      "description": "Affinity CRM workflows for Claude — meeting prep, pipeline review, warm intros, interaction logging, and relationship intelligence",
+      "author": {
+        "name": "Yaniv Golan",
+        "email": "yaniv@golan.name"
+      },
       "source": "./mcp/.claude-plugin",
-      "description": "MCP server for Affinity CRM - workflow tools, relationship intelligence, pipeline management"
+      "category": "productivity"
     }
   ]
 }

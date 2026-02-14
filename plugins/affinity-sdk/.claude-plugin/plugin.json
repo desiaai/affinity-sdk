@@ -1,9 +1,10 @@
 {
   "name": "affinity-sdk",
-  "description": "Python SDK for Affinity CRM - typed IDs, async support, pagination patterns, and error handling for developers",
+  "description": "Python SDK for Affinity CRM — write scripts to search, export, filter, and automate CRM data with typed IDs, async/sync clients, and built-in pagination",
   "version": "1.5.2",
   "author": {
-    "name": "Yaniv Golan"
+    "name": "Yaniv Golan",
+    "email": "yaniv@golan.name"
   },
   "homepage": "https://yaniv-golan.github.io/affinity-sdk/",
   "repository": "https://github.com/yaniv-golan/affinity-sdk",
