@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Sync version from mcp/VERSION to MCP plugin and server metadata files.
+"""Sync version from mcp/VERSION to MCP server metadata.
 
-This script syncs the MCP version to:
-- mcp/.claude-plugin/plugin.json
+This script syncs the MCP server version to:
 - mcp/server.d/server.meta.json
 
-The single source of truth is mcp/VERSION.
+The single source of truth for MCP server version is mcp/VERSION.
+
+Note: mcp/.claude-plugin/plugin.json is NOT synced — the MCP plugin has
+independent versioning (see VERSIONING.md).
 """
 
 from __future__ import annotations
@@ -15,8 +17,9 @@ import sys
 from pathlib import Path
 
 # Files that should match mcp/VERSION
+# Note: mcp/.claude-plugin/plugin.json is intentionally excluded —
+# the MCP plugin has independent versioning (see VERSIONING.md)
 MCP_VERSION_TARGETS = [
-    "mcp/.claude-plugin/plugin.json",
     "mcp/server.d/server.meta.json",
 ]
 

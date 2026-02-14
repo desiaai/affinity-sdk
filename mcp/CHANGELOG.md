@@ -5,6 +5,12 @@ All notable changes to the xaffinity MCP server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.1] - 2026-02-15
+
+### Changed
+- Rewrote `query-language` SKILL.md (861→293 lines) with progressive disclosure; extracted detail to reference files (`filter-operators.md`, `quantifiers.md`, `include-expand.md`, `output-formats.md`)
+- Updated `affinity-mcp-workflows` skill description following Anthropic skills guide formula
+
 ## [1.18.0] - 2026-02-04
 
 ### Fixed

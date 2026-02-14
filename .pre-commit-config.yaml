@@ -53,13 +53,6 @@ repos:
         language: system
         types: [python]
         files: ^affinity/cli/commands/.*\.py$
-      - id: sync-plugin-version
-        name: Sync plugin version with SDK
-        entry: python tools/sync_plugin_version.py
-        language: python
-        files: ^(pyproject\.toml|plugins/.*/\.claude-plugin/plugin\.json)$
-        pass_filenames: false
-        additional_dependencies: ['tomli']
       - id: sync-mcp-registry
         name: Sync MCP CLI commands registry
         entry: python tools/sync_mcp_registry.py
@@ -67,10 +60,10 @@ repos:
         files: ^(pyproject\.toml|affinity/cli/commands/.*\.py)$
         pass_filenames: false
       - id: sync-mcp-version
-        name: Sync MCP version files
+        name: Sync MCP server version
         entry: python tools/sync_mcp_version.py
         language: python
-        files: ^(mcp/VERSION|mcp/\.claude-plugin/plugin\.json|mcp/server\.d/server\.meta\.json)$
+        files: ^(mcp/VERSION|mcp/server\.d/server\.meta\.json)$
         pass_filenames: false
       - id: pytest-pre-push
         name: Run tests before push

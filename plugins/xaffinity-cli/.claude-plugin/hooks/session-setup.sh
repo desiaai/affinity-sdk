@@ -5,7 +5,11 @@ set -euo pipefail
 # Safe in all environments: only acts when something is missing.
 # - Claude Code (macOS): xaffinity already installed, key in config.toml/env — no-ops
 # - Claude Desktop: not applicable (MCP server, not CLI)
-# - Claude Cowork (Linux VM): installs xaffinity, fixes PATH, loads .env key
+# - Claude Cowork (Linux VM): installs xaffinity, fixes PATH
+#
+# NOTE: Does NOT export AFFINITY_API_KEY to the environment.
+# The key stays in .env and is read per-command via --dotenv.
+# This prevents the LLM from reading the key via `env` or `echo`.
 
 # 1. Install xaffinity if not on PATH
 if ! command -v xaffinity &>/dev/null; then
@@ -23,44 +27,16 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -qF '/.local/bin' "$CLAUDE_ENV_FILE" 
   echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
 fi
 
-# 3. Load API key from .env if not already set
-if [ -z "${AFFINITY_API_KEY:-}" ]; then
-  ENV_FILE=""
-
-  # Check standard locations
-  for candidate in ".env" "${CLAUDE_PROJECT_DIR:-.}/.env"; do
-    if [ -f "$candidate" ]; then
-      ENV_FILE="$candidate"
-      break
-    fi
-  done
-
-  # Cowork session mounts (only if standard locations didn't work)
-  if [ -z "$ENV_FILE" ] && [ -d "/sessions" ]; then
-    ENV_FILE=$(find /sessions/*/mnt -maxdepth 3 -name ".env" -type f 2>/dev/null | head -1)
-  fi
-
-  if [ -n "$ENV_FILE" ] && [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -q 'AFFINITY_API_KEY' "$CLAUDE_ENV_FILE" 2>/dev/null; then
-    KEY=$(grep -E '^AFFINITY_API_KEY=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)
-    KEY="${KEY%$'\r'}"  # Strip trailing \r from Windows-style CRLF
-    # Strip surrounding quotes (single or double) that .env files often use
-    KEY="${KEY#\"}" && KEY="${KEY%\"}"
-    KEY="${KEY#\'}" && KEY="${KEY%\'}"
-    if [ -n "$KEY" ]; then
-      echo "export AFFINITY_API_KEY=\"$KEY\"" >> "$CLAUDE_ENV_FILE"
-    fi
-  fi
-fi
-
-# 4. Report status (non-blocking, stderr only)
+# 3. Report status (non-blocking, stderr only)
+# Uses --dotenv to check if .env has a valid key without exposing it
 if ! command -v xaffinity &>/dev/null; then
   echo "xaffinity not available — install with: pip install 'affinity-sdk[cli]'" >&2
-elif [ -n "${AFFINITY_API_KEY:-}" ]; then
-  echo "xaffinity ready (API key from environment)" >&2
+elif xaffinity --dotenv --json config check-key 2>/dev/null | grep -q '"configured":true\|"configured": true'; then
+  echo "xaffinity ready (API key via --dotenv)" >&2
 elif xaffinity --json config check-key 2>/dev/null | grep -q '"configured":true\|"configured": true'; then
   echo "xaffinity ready (API key from config)" >&2
 else
-  echo "xaffinity installed, no API key found — run: xaffinity config setup-key" >&2
+  echo "xaffinity installed, no API key found — add AFFINITY_API_KEY to .env or run: xaffinity config setup-key" >&2
 fi
 
 exit 0

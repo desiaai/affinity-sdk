@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Plugin Releases — 2026-02-15
+
+Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
+
+### CLI Plugin 1.5.3
+
+#### Changed
+- Plugin versions are now independent from SDK version
+
+#### Fixed
+- **Security**: SessionStart hook no longer exports `AFFINITY_API_KEY` to the environment. The key stays in `.env` and is read per-command via `--dotenv`, preventing the LLM from accessing it via `env` or `echo $AFFINITY_API_KEY`.
+
+### SDK Plugin 1.5.3
+
+#### Changed
+- Rewrote `affinity-python-sdk` skill description following Anthropic skills guide formula
+
+### MCP Plugin 1.18.1
+
+#### Changed
+- Rewrote `query-language` SKILL.md (861→293 lines) with progressive disclosure; extracted detail to 4 reference files
+- Updated `affinity-mcp-workflows` skill description following guide formula
+
 ## [1.5.2] - 2026-02-14
 
 ### Added
