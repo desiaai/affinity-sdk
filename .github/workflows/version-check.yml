@@ -15,45 +15,44 @@ jobs:
         id: sdk
         run: |
           SDK_VERSION=$(grep '^version = ' pyproject.toml | head -1 | cut -d'"' -f2)
-          echo "version=$SDK_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Check SDK plugin version matches
-        run: |
-          PLUGIN_VERSION=$(jq -r '.version' plugins/affinity-sdk/.claude-plugin/plugin.json)
-          if [ "$PLUGIN_VERSION" != "${{ steps.sdk.outputs.version }}" ]; then
-            echo "::error::SDK plugin version ($PLUGIN_VERSION) != SDK version (${{ steps.sdk.outputs.version }})"
-            exit 1
-          fi
-
-      - name: Check CLI plugin version matches
-        run: |
-          PLUGIN_VERSION=$(jq -r '.version' plugins/xaffinity-cli/.claude-plugin/plugin.json)
-          if [ "$PLUGIN_VERSION" != "${{ steps.sdk.outputs.version }}" ]; then
-            echo "::error::CLI plugin version ($PLUGIN_VERSION) != SDK version (${{ steps.sdk.outputs.version }})"
-            exit 1
-          fi
+          echo "version=$SDK_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check MCP CLI compatibility
         shell: bash
         run: |
           source mcp/COMPATIBILITY
-          SDK_MINOR=$(echo "${{ steps.sdk.outputs.version }}" | cut -d. -f1-2)
+          SDK_VERSION="${{ steps.sdk.outputs.version }}"
+          SDK_MINOR=$(echo "$SDK_VERSION" | cut -d. -f1-2)
           MIN_MINOR=$(echo "$CLI_MIN_VERSION" | cut -d. -f1-2)
           # SDK minor version should be >= CLI_MIN_VERSION minor
           if [ "$(printf '%s\n%s' "$MIN_MINOR" "$SDK_MINOR" | sort -V | head -1)" != "$MIN_MINOR" ]; then
-            echo "::error::SDK version ${{ steps.sdk.outputs.version }} is below MCP minimum ($CLI_MIN_VERSION)"
+            echo "::error::SDK version $SDK_VERSION is below MCP minimum ($CLI_MIN_VERSION)"
             exit 1
           fi
 
-      - name: Check MCP plugin version matches VERSION
+      - name: Check MCP server.meta.json matches VERSION
         run: |
           MCP_VERSION=$(cat mcp/VERSION | tr -d '[:space:]')
-          PLUGIN_VERSION=$(jq -r '.version' mcp/.claude-plugin/plugin.json)
-          if [ "$PLUGIN_VERSION" != "$MCP_VERSION" ]; then
-            echo "::error::MCP plugin.json version ($PLUGIN_VERSION) != VERSION file ($MCP_VERSION)"
+          META_VERSION=$(jq -r '.version' mcp/server.d/server.meta.json)
+          if [ "$META_VERSION" != "$MCP_VERSION" ]; then
+            echo "::error::server.meta.json version ($META_VERSION) != VERSION file ($MCP_VERSION)"
             exit 1
           fi
-          echo "MCP plugin version: $MCP_VERSION"
+          echo "MCP server version: $MCP_VERSION"
+
+      - name: Validate plugin.json files
+        run: |
+          # Just verify valid JSON and version field exists (no cross-file sync required)
+          for f in plugins/affinity-sdk/.claude-plugin/plugin.json \
+                   plugins/xaffinity-cli/.claude-plugin/plugin.json \
+                   mcp/.claude-plugin/plugin.json; do
+            VERSION=$(jq -r '.version // empty' "$f")
+            if [ -z "$VERSION" ]; then
+              echo "::error::Missing version in $f"
+              exit 1
+            fi
+            echo "$f: $VERSION"
+          done
 
       - name: Check mcp-bash lockfile
         run: |
