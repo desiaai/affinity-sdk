@@ -98,7 +98,7 @@ If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code), instal
 ```bash
 /plugin marketplace add yaniv-golan/affinity-sdk
 /plugin install sdk@xaffinity   # SDK patterns
-/plugin install cli@xaffinity   # CLI patterns + /affinity-help
+/plugin install cli@xaffinity   # CLI patterns + hooks
 ```
 
 Plugin docs: https://yaniv-golan.github.io/affinity-sdk/latest/guides/claude-code-plugins/

@@ -32,7 +32,7 @@ Using Claude Code? Install the CLI plugin for AI-assisted usage:
 /plugin install cli@xaffinity
 ```
 
-This teaches Claude CLI patterns and provides the `/affinity-help` quick reference command. See [Claude Code plugins](../guides/claude-code-plugins.md) for all available plugins.
+This teaches Claude CLI patterns and provides hooks for API key protection and Cowork bootstrap. See [Claude Code plugins](../guides/claude-code-plugins.md) for all available plugins.
 
 ## Install
 

@@ -1,11 +1,15 @@
 ---
 name: affinity-mcp-workflows
-description: Use when working with Affinity CRM via MCP tools - find entities, manage workflows, log interactions, prepare briefings, find warm intros. Also use when user mentions "pipeline", "deals", "relationship strength", or wants to prepare for meetings.
+description: >
+  Orchestrates Affinity CRM workflows via MCP tools — entity lookup, pipeline review,
+  meeting prep, warm intros, and interaction logging.
+  Use when user works with Affinity through MCP tools, mentions "pipeline", "deals",
+  "relationship strength", "prepare briefing", "warm intro", or wants to log calls/meetings.
+  Provides CLI gateway (discover-commands, execute-read/write-command), query tool for
+  aggregation/filtering, entity dossier, and guided workflow prompts.
 ---
 
 # Affinity MCP Workflows
-
-This skill covers the xaffinity MCP server tools, prompts, and resources for working with Affinity CRM.
 
 ## Prerequisites
 

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-02-14
+
+### Added
+- CLI Plugin: SessionStart hook (`session-setup.sh`) for Cowork bootstrap — installs xaffinity, sets PATH, loads API key from `.env`
+- CLI Plugin: PreToolUse/Read guard (`guard-env-read.sh`) blocks reading `.env` files to prevent API key exposure in conversation
+- CLI Plugin: Query command reference (`references/query-guide.md`)
+- MCP Plugin: Query language reference files (`references/filter-operators.md`, `quantifiers.md`, `include-expand.md`, `output-formats.md`)
+
+### Changed
+- Marketplace: Renamed plugins from generic "sdk"/"cli"/"mcp" to "Affinity CRM SDK (unofficial)", "Affinity CRM CLI (xaffinity, unofficial)", "Affinity CRM MCP (unofficial)" for clarity in plugin lists.
+- CLI Plugin: Rewrote skill description following Anthropic skills guide formula
+- MCP Plugin: Rewrote `query-language` SKILL.md (861→293 lines) with progressive disclosure; extracted detail to `references/`
+- MCP Plugin: Updated `affinity-mcp-workflows` skill description following guide formula
+- SDK Plugin: Updated `affinity-python-sdk` skill description following guide formula
+
+### Removed
+- CLI Plugin: Removed `/affinity-help` command (redundant — CLI skill auto-triggers on relevant prompts)
+
+### Fixed
+- CLI Plugin: `.env` parsing now handles quoted values and CRLF line endings
+- CLI Plugin: SessionStart hook writes to `CLAUDE_ENV_FILE` are idempotent (no duplicate lines on re-run)
+
 ## [1.5.1] - 2026-02-12
 
 ### Fixed

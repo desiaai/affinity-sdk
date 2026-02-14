@@ -1,7 +1,30 @@
 {
-  "description": "Ensures API key is configured before xaffinity data commands",
+  "description": "Bootstrap xaffinity CLI, guard API keys, and validate commands",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/session-setup.sh",
+            "timeout": 60,
+            "statusMessage": "Setting up Affinity CLI..."
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/guard-env-read.sh",
+            "timeout": 5
+          }
+        ]
+      },
       {
         "matcher": "Bash",
         "hooks": [

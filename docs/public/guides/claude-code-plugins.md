@@ -5,7 +5,7 @@ Two [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugins provid
 | Plugin | Best For | Key Feature |
 |--------|----------|-------------|
 | **sdk** | Python developers | Type-safe SDK patterns |
-| **cli** | CLI power users | `/affinity-help` quick reference |
+| **cli** | CLI power users | CLI skill + API key guard hook |
 
 All plugins are installed from the `xaffinity` marketplace.
 
@@ -29,7 +29,7 @@ Install the plugin(s) you need:
 # For Python SDK development
 /plugin install sdk@xaffinity
 
-# For CLI usage + /affinity-help command
+# For CLI usage + hooks
 /plugin install cli@xaffinity
 ```
 
@@ -93,10 +93,6 @@ client.persons.list(filter=F.field("Department").equals("Sales"))
 ## CLI Plugin (xaffinity-cli-usage skill)
 
 Teaches Claude the correct patterns for running `xaffinity` CLI commands.
-
-### /affinity-help command
-
-Run `/affinity-help` in Claude Code for a quick reference of CLI patterns.
 
 ### What the skill teaches Claude
 

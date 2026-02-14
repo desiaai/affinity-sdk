@@ -8,17 +8,17 @@
   },
   "plugins": [
     {
-      "name": "sdk",
+      "name": "Affinity CRM SDK (unofficial)",
       "source": "./plugins/affinity-sdk/.claude-plugin",
       "description": "Python SDK for Affinity CRM - typed IDs, async support, pagination patterns for developers"
     },
     {
-      "name": "cli",
+      "name": "Affinity CRM CLI (xaffinity, unofficial)",
       "source": "./plugins/xaffinity-cli/.claude-plugin",
       "description": "Command-line interface for Affinity CRM - search, export, filter CRM data via xaffinity commands"
     },
     {
-      "name": "mcp",
+      "name": "Affinity CRM MCP (unofficial)",
       "source": "./mcp/.claude-plugin",
       "description": "MCP server for Affinity CRM - workflow tools, relationship intelligence, pipeline management"
     }
