@@ -633,8 +633,73 @@ def config_update_check(
             # Exit with code 1 on failure
             raise click.exceptions.Exit(1) from e
 
-    # Human-readable output for default (no flags) case
-    if ctx.output != "json" and not now and not status and enable is None:
+    # Human-readable output — bypass run_command for all non-JSON paths
+    if ctx.output != "json":
+        state_dir = ctx.paths.state_dir
+        cache_path = state_dir / "update_check.json"
+
+        # --now: check PyPI immediately
+        if now:
+            latest = check_pypi_version()
+            current = affinity.__version__
+            if latest:
+                update_avail = is_update_available(current, latest)
+                info = UpdateInfo(
+                    current_version=current,
+                    latest_version=latest,
+                    checked_at=datetime.now(timezone.utc),
+                    update_available=update_avail,
+                )
+                save_update_info(cache_path, info)
+                click.echo(f"Current version: {current}")
+                if update_avail:
+                    click.echo(f"Latest version: {latest}")
+                    cmd = get_upgrade_command()
+                    click.echo(f"Status: update available \u2014 run `{cmd}`")
+                else:
+                    click.echo("Status: up to date")
+            else:
+                click.echo("Status: could not reach PyPI \u2014 try again later")
+            raise click.exceptions.Exit(0)
+
+        # --status: show cached info
+        if status:
+            cached = get_cached_update_info(cache_path)
+            if cached is None:
+                click.echo("No update check cache.")
+                click.echo("Run `xaffinity config update-check --now` to check.")
+                raise click.exceptions.Exit(0)
+            click.echo(f"Current version: {cached.current_version}")
+            if cached.update_available and cached.latest_version:
+                click.echo(f"Latest version: {cached.latest_version}")
+            ts_str = cached.checked_at.strftime("%Y-%m-%d %H:%M UTC")
+            click.echo(f"Last checked: {_time_ago(cached.checked_at)} ({ts_str})")
+            if cached.is_stale():
+                click.echo("Cache: stale")
+            if cached.update_available:
+                cmd = get_upgrade_command()
+                click.echo(f"Status: update available \u2014 run `{cmd}`")
+            else:
+                click.echo("Status: up to date")
+            raise click.exceptions.Exit(0)
+
+        # --enable/--disable: show instructions
+        if enable is not None:
+            if enable:
+                click.echo(
+                    "To enable update checks, ensure update_check = true"
+                    f" in {ctx.paths.config_path}"
+                    " or remove XAFFINITY_NO_UPDATE_CHECK env var."
+                )
+            else:
+                click.echo(
+                    "To disable update checks, set update_check = false"
+                    f" in {ctx.paths.config_path}"
+                    " or set XAFFINITY_NO_UPDATE_CHECK=1."
+                )
+            raise click.exceptions.Exit(0)
+
+        # Default (no flags): show current settings with inline check
         enabled = ctx.update_check_enabled
         if not enabled:
             click.echo("Update checks: disabled")
@@ -643,8 +708,6 @@ def config_update_check(
         mode = ctx.update_notify_mode
         click.echo(f"Update checks: enabled ({mode})")
 
-        state_dir = ctx.paths.state_dir
-        cache_path = state_dir / "update_check.json"
         cached = get_cached_update_info(cache_path)
 
         if cached is None or cached.is_stale():
