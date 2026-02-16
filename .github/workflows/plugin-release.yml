@@ -137,6 +137,21 @@ jobs:
           git tag -a "${{ steps.version.outputs.tag_name }}" -m "Release ${{ steps.version.outputs.tag_name }}"
           git push origin "${{ steps.version.outputs.tag_name }}"
 
+      - name: Set up Python for release notes
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Generate release notes
+        shell: bash
+        env:
+          MCP_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python tools/generate_release_notes.py \
+            --version "$MCP_RELEASE_VERSION" \
+            --type mcp \
+            --output release_notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -144,20 +159,5 @@ jobs:
           files: |
             mcp/.claude-plugin/xaffinity-mcp-plugin.zip
             mcp/dist/*.mcpb
-          generate_release_notes: true
           name: MCP Server ${{ steps.version.outputs.tag_name }}
-          body: |
-            ## Installation
-
-            ### One-click install (Claude Desktop)
-            Download `xaffinity-mcp-*.mcpb` and double-click or drag to Claude Desktop.
-
-            ### Claude Code
-            ```bash
-            /plugin marketplace add yaniv-golan/affinity-sdk
-            /plugin install mcp@xaffinity
-            ```
-
-            ### Manual configuration
-            Download `xaffinity-mcp-plugin.zip` and configure your MCP client manually.
-            See [documentation](https://yaniv-golan.github.io/affinity-sdk/latest/mcp/) for details.
+          body_path: release_notes.md

@@ -132,7 +132,7 @@ This approach is robust regardless of how many commits are pushed together, squa
 1. Update version in `pyproject.toml`
 2. If plugin content also changed: bump plugin versions in their `plugin.json` files
 3. Run pre-commit
-4. Update `CHANGELOG.md` with changes
+4. Update `CHANGELOG.md` with changes (see [Changelog Format](#changelog-format) below)
 5. If CLI output changed: check MCP compatibility
 6. Commit and push to `main` (or merge PR)
 7. **Release runs automatically** — tag created post-release
@@ -143,7 +143,7 @@ SDK releases include MCPB bundles (built from the same commit) for convenience, 
 
 1. Update `mcp/VERSION`
 2. If MCP plugin content also changed: bump version in `mcp/.claude-plugin/plugin.json`
-3. Update `mcp/CHANGELOG.md`
+3. Update `mcp/CHANGELOG.md` (see [Changelog Format](#changelog-format) below)
 4. If CLI requirements changed: update `mcp/COMPATIBILITY`
 5. Run pre-commit (syncs server.meta.json from `mcp/VERSION`)
 6. Commit and push to `main` (or merge PR)
@@ -216,13 +216,45 @@ git ls-remote https://github.com/yaniv-golan/mcp-bash-framework.git 'vX.Y.Z^{}'
 # 3. Update mcp/CHANGELOG.md
 ```
 
+## Changelog Format
+
+Both `CHANGELOG.md` (SDK/CLI) and `mcp/CHANGELOG.md` follow [Keep a Changelog](https://keepachangelog.com/)
+with one addition: every version entry **must** start with a `### Highlights` section.
+
+```markdown
+## [1.6.0] - 2026-02-16
+
+### Highlights
+
+1-3 sentences in plain language summarizing why users should upgrade.
+Write for the user, not the developer — focus on what's now possible
+or what problem is fixed, not internal implementation details.
+
+### Added
+- ...
+
+### Fixed
+- ...
+```
+
+**Why Highlights matter:** The release workflow (`tools/generate_release_notes.py`) reads
+the changelog and restructures it into GitHub Release notes. The Highlights section
+becomes the first thing users see in release notifications and RSS feeds. Without it,
+the release notes lack context.
+
+**Guidelines for writing Highlights:**
+- Use plain language ("You can now..." not "Changed `InteractionService.list()`...")
+- For breaking changes, mention them with a **Breaking:** prefix and a brief migration hint
+- For patch releases with only fixes, one sentence is fine
+- For feature releases, summarize the 1-2 most impactful additions
+
 ## Release Checklist
 
 ### SDK Release
 - [ ] Version bumped in `pyproject.toml`
 - [ ] If plugin content also changed: plugin versions bumped in their `plugin.json` files
 - [ ] Pre-commit ran
-- [ ] `CHANGELOG.md` updated
+- [ ] `CHANGELOG.md` updated with `### Highlights` and categorized changes
 - [ ] If CLI output changed: MCP tested and COMPATIBILITY checked
 - [ ] Changes merged to `main`
 - [ ] Verify release workflow completed successfully
@@ -237,7 +269,7 @@ git ls-remote https://github.com/yaniv-golan/mcp-bash-framework.git 'vX.Y.Z^{}'
 ### MCP Release
 - [ ] Version bumped in `mcp/VERSION`
 - [ ] If MCP plugin content also changed: version bumped in `mcp/.claude-plugin/plugin.json`
-- [ ] `mcp/CHANGELOG.md` updated
+- [ ] `mcp/CHANGELOG.md` updated with `### Highlights` and categorized changes
 - [ ] If CLI requirements changed: `mcp/COMPATIBILITY` verified
 - [ ] Pre-commit ran (syncs server.meta.json)
 - [ ] Changes merged to `main`

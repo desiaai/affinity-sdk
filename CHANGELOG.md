@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.6.0] - 2026-02-16
 
+### Highlights
+
+New `--include-me` flag for `interaction create` auto-includes your person ID. Also fixes field writes for person/company multi-value fields -- entity IDs are now wrapped correctly for the V2 API, and `--append` properly merges instead of replacing.
+
 ### Added
 - **CLI**: `interaction create --include-me` flag to auto-include current user's person ID via whoami
 - **CLI**: Enhanced validation error hint for interaction person_ids constraint (internal/external requirement)
@@ -47,6 +51,10 @@ Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
 
 ## [1.5.2] - 2026-02-14
 
+### Highlights
+
+Plugin improvements for Claude Code and Cowork: automatic environment setup via SessionStart hook, API key protection via `.env` read guard, and clearer plugin names in marketplace listings.
+
 ### Added
 - CLI Plugin: SessionStart hook (`session-setup.sh`) for Cowork bootstrap — installs xaffinity, sets PATH, loads API key from `.env`
 - CLI Plugin: PreToolUse/Read guard (`guard-env-read.sh`) blocks reading `.env` files to prevent API key exposure in conversation
@@ -69,11 +77,19 @@ Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
 
 ## [1.5.1] - 2026-02-12
 
+### Highlights
+
+Fixes writing to multi-select dropdown fields. `--set` and `--append` now correctly handle the array format required by the API, and `--append` properly merges with existing selections instead of replacing them.
+
 ### Fixed
 - CLI: `--set` and `--append` now work correctly for dropdown-multi fields when V1 API returns `value_type="dropdown"` with `allows_multiple=True`. Previously, `resolve_dropdown_value` only checked `value_type` (not `allows_multiple`) to determine the payload format, sending `{"dropdownOptionId": ID}` instead of `[{"dropdownOptionId": ID}]`.
 - CLI: `--append` for dropdown-multi fields now merges with existing values instead of replacing them. The V2 API replaces the entire option array on POST, so `--append` now reads existing selections, adds the new option (deduplicating), and sends the combined array.
 
 ## [1.5.0] - 2026-02-11
+
+### Highlights
+
+Interaction queries are now much more robust. Date ranges are validated up front, ranges over 1 year are auto-chunked seamlessly, and mixing naive/timezone-aware datetimes is caught with a clear error. **Breaking:** `InteractionService.list()` now requires `start_time`, `end_time`, and an entity ID -- callers already getting 422 errors will now get a clear SDK-level message instead.
 
 ### Changed
 - **Breaking:** `InteractionService.list()` and `AsyncInteractionService.list()` now require `start_time`, `end_time`, and at least one entity ID (`person_id`, `company_id`, or `opportunity_id`). Previously these were optional, but the API always rejected calls without them (422). Callers that were passing `None` for these parameters were already getting API errors; this change surfaces the requirement at the SDK level with clear error messages.
@@ -91,11 +107,19 @@ Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
 
 ## [1.4.1] - 2026-02-11
 
+### Highlights
+
+CLI errors from invalid commands or options now produce proper JSON error envelopes when `--json` is active, fixing broken downstream JSON parsers.
+
 ### Fixed
 - CLI: Click-level errors (unknown commands, invalid options) now emit a proper JSON error envelope (`{"ok": false, "error": {...}}`) when `--json` or `--output json` is active. Previously, stdout was empty and only plain text went to stderr, breaking downstream JSON parsers.
 - CLI: `normalize_exception()` now handles `click.UsageError` (→ `usage_error`, exit code 2) and `click.ClickException` (→ `error`, exit code from exception) instead of misclassifying them as `internal_error`.
 
 ## [1.4.0] - 2026-02-10
+
+### Highlights
+
+`FieldResolver` now resolves all value types to human-readable text -- not just dropdowns, but also persons, companies, locations, and interactions. Dropdown fields return rich `DropdownOption` objects with `.text`, `.rank`, and `.color`. **Breaking:** `get_value()` returns `DropdownOption` instead of raw IDs, and `resolve_dropdowns` parameter is replaced by `ResolveMode`.
 
 ### Changed
 - **Breaking:** `FieldValues.get_value()` now returns `DropdownOption` objects for dropdown/ranked-dropdown fields instead of raw `int` IDs. The `DropdownOption` has `.id`, `.text`, `.rank`, and `.color` attributes. This applies to all dropdown value types (`dropdown`, `ranked-dropdown`, `dropdown-multi`).
@@ -124,10 +148,18 @@ Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
 
 ## [1.3.2] - 2026-02-08
 
+### Highlights
+
+Fixes writing to `dropdown-multi` fields via `--set` and `--append`. Previously all dropdown-multi writes failed with a type mismatch error.
+
 ### Fixed
 - CLI: `--set` and `--append` now work for `dropdown-multi` fields. Previously, `resolve_dropdown_value()` only handled `dropdown` and `ranked-dropdown`, causing all dropdown-multi writes to fail with "Field value type should be dropdown-multi" errors. The fix resolves option text/IDs and wraps them in the array format required by the V2 API.
 
 ## [1.3.1] - 2026-02-06
+
+### Highlights
+
+`FieldResolver` now works correctly with list entry objects -- it auto-delegates to the inner entity when fields were fetched on the entity rather than the list entry directly.
 
 ### Fixed
 - SDK: `FieldResolver.get()` and `get_by_id()` now automatically delegate to the inner entity when called with a `ListEntryWithEntity` whose fields were not directly requested. Previously warned and returned `None` even when `entry.entity.fields` were populated.
@@ -135,10 +167,18 @@ Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
 
 ## [1.3.0] - 2026-02-06
 
+### Highlights
+
+New `list_batch()` method on `AsyncEntityFileService` for fetching files across multiple entities concurrently with auto-pagination.
+
 ### Added
 - SDK: `list_batch()` on `AsyncEntityFileService` for fetching files across multiple entities concurrently with auto-pagination. Accepts `person_ids`, `company_ids`, or `opportunity_ids` with `max_concurrent` and `on_error` ("raise"/"skip") parameters.
 
 ## [1.2.0] - 2026-02-06
+
+### Highlights
+
+New async batch methods for files and reminders: `batch_get()` on `AsyncEntityFileService` and `list_batch()` on `AsyncReminderService` for concurrent multi-entity operations. Also fixes falsy ID bugs across reminder and file services.
 
 ### Added
 - SDK: `batch_get()` on `AsyncEntityFileService` for fetching file metadata concurrently with controlled concurrency. Supports `max_concurrent` and `on_error` ("raise"/"skip") parameters.
@@ -149,6 +189,10 @@ Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
 - SDK: Fixed incorrect `ReminderStatus` docstrings that referenced non-existent "SNOOZED" and "COMPLETE" values. The actual enum values are `COMPLETED`, `ACTIVE`, and `OVERDUE`.
 
 ## [1.1.0] - 2026-02-05
+
+### Highlights
+
+Major convenience release: `FieldResolver` for looking up field values by name instead of ID, `batch_get()` for concurrent entity fetching, `read_only()` factory for safe clients, and `get_first()` for quick single-entity lookups. Working with Affinity field data is now significantly easier.
 
 ### Added
 - SDK: `CompanyService.get_many(company_ids)` convenience method for batch fetching multiple companies in a single API call. Alias for `list(ids=[...])` with better discoverability.
@@ -166,16 +210,28 @@ Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
 
 ## [1.0.3] - 2026-02-03
 
+### Highlights
+
+Fixes MCP timeout failures during large query `include` operations by emitting incremental progress every 10 records instead of only at start/end.
+
 ### Fixed
 - CLI: Query `include` operations now emit incremental progress every 10 records during N+1 API calls. Previously, progress was only emitted at the start and end of include steps, causing MCP timeout to expire during long-running N+1 operations (e.g., 100 records with `include: ["persons"]`). The fix changes from `asyncio.gather()` to `asyncio.as_completed()` for incremental progress emission.
 
 ## [1.0.2] - 2026-02-03
+
+### Highlights
+
+Fixes descending sort for string fields in queries (dates, names were silently returning ascending order) and corrects API call estimates for sorted queries that could cause premature timeouts.
 
 ### Fixed
 - CLI: Query `orderBy` with descending direction now works correctly for string values (dates, names, etc.). Previously, descending sort on non-numeric fields silently returned results in ascending order because string values cannot be negated. The fix uses a comparison-inverting wrapper class for proper descending sort.
 - CLI: Query dry run now correctly estimates API calls when `orderBy` is present. Previously, `estimatedApiCalls` used the `limit` value even though sorting requires fetching all records first. A query with `limit: 200` and `orderBy` on a 9000-record list showed 4 API calls instead of ~90. This caused dynamic timeout calculations to be too short.
 
 ## [1.0.1] - 2026-02-01
+
+### Highlights
+
+Fixes unreplied email/chat detection (`--check-unreplied` and `expand: ["unreplied"]`) which was silently failing, and adds required `type` parameter validation to `InteractionService` with clear error messages instead of cryptic 422s.
 
 ### Fixed
 - SDK: `InteractionService.list()` and `iter()` now validate that `type` parameter is required, raising `ValueError` with clear guidance instead of failing with cryptic API 422 errors. The Affinity V1 API has always required this parameter.

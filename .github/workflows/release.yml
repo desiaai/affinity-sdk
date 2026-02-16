@@ -263,24 +263,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Extract changelog for version
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Generate release notes
         id: changelog
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version_tag }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag_name }}
         run: |
-          VERSION="${{ needs.validate.outputs.version_tag }}"
-          # Extract changelog section for this version
-          CHANGELOG=$(awk "/^## ${VERSION//./\\.} -/,/^## [0-9]/" CHANGELOG.md | head -n -1 | tail -n +2)
-          if [ -z "$CHANGELOG" ]; then
-            CHANGELOG="Release ${VERSION}"
-          fi
-          # Write to file to preserve formatting
-          echo "$CHANGELOG" > release_notes.md
-
-          # Add install instructions footer with dynamic MCPB link
-          MCP_VERSION=$(cat mcp/VERSION)
-          SDK_TAG="${{ needs.validate.outputs.tag_name }}"
-          MCPB_URL="https://github.com/yaniv-golan/affinity-sdk/releases/download/${SDK_TAG}/xaffinity-mcp-${MCP_VERSION}.mcpb"
-          sed "s|{{MCPB_URL}}|${MCPB_URL}|g" .github/release-install-footer.md >> release_notes.md
+          python tools/generate_release_notes.py \
+            --version "$RELEASE_VERSION" \
+            --type sdk \
+            --mcpb-url "https://github.com/yaniv-golan/affinity-sdk/releases/download/${RELEASE_TAG}/xaffinity-mcp-$(cat mcp/VERSION).mcpb" \
+            --output release_notes.md
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v7
