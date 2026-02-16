@@ -129,6 +129,26 @@ class TestConfigCheckKey:
         assert '"source": "dotenv"' in result.output
         assert '"pattern": "xaffinity --dotenv --readonly <command> --json"' in result.output
 
+    def test_check_key_from_custom_env_file_path(self, runner, monkeypatch):
+        """Test check-key respects --env-file pointing to a non-CWD path."""
+        monkeypatch.delenv("AFFINITY_API_KEY", raising=False)
+
+        with runner.isolated_filesystem() as fs:
+            # Create .env in a subdirectory (not CWD)
+            subdir = Path(fs) / "subdir"
+            subdir.mkdir()
+            (subdir / ".env").write_text("AFFINITY_API_KEY=my-secret-key\n")
+            mock_paths = make_mock_paths(Path(fs))
+
+            with mock_cli_paths(mock_paths):
+                result = runner.invoke(
+                    cli, ["--env-file", str(subdir / ".env"), "config", "check-key", "--json"]
+                )
+
+        assert result.exit_code == 0
+        assert '"configured": true' in result.output
+        assert '"source": "dotenv"' in result.output
+
     def test_check_key_ignores_empty_value_in_env(self, runner, monkeypatch):
         """Test check-key doesn't consider empty api_key as configured."""
         monkeypatch.delenv("AFFINITY_API_KEY", raising=False)

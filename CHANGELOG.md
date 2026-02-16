@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-02-16
+
+### Highlights
+
+`config check-key --env-file <path>` now correctly reads the specified file instead of only looking in the current directory. Fixes key discovery in Cowork VM sessions where the `.env` is on a mounted path.
+
+### Fixed
+- **CLI**: `config check-key` ignored `--env-file` flag — always checked `CWD/.env` instead of the user-provided path
+
 ## [1.6.0] - 2026-02-16
 
 ### Highlights

@@ -94,7 +94,7 @@ def _find_existing_key(ctx: CLIContext) -> tuple[bool, str | None]:
 
     # Check .env file in current directory (without requiring --dotenv flag)
     # This allows check-key to discover keys even if user forgot --dotenv
-    dotenv_path = Path(".env")
+    dotenv_path = ctx.env_file
     if dotenv_path.exists():
         try:
             content = dotenv_path.read_text(encoding="utf-8")
