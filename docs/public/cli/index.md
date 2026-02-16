@@ -203,13 +203,19 @@ update_notify = "interactive"  # "interactive" (default), "always", or "never"
 
 ### Manual Check
 
-Check for updates manually:
+Check your update status (queries PyPI if no recent cache):
+
+```bash
+xaffinity config update-check
+```
+
+Force a fresh check regardless of cache age:
 
 ```bash
 xaffinity config update-check --now
 ```
 
-See current update status:
+See detailed update status (JSON-friendly):
 
 ```bash
 xaffinity config update-check --status

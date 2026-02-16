@@ -4,7 +4,7 @@ This module is designed to run as a detached subprocess to check PyPI for
 updates and write to the cache file without blocking CLI execution.
 
 Usage:
-    python -m affinity.cli._update_worker --cache-path /path/to/cache.json
+    python -m affinity.cli._update_worker --cache-path /path/to/cache.json --current-version 1.6.0
 """
 
 from __future__ import annotations
@@ -18,15 +18,20 @@ def main() -> None:
     """Main entry point for background update worker."""
     parser = argparse.ArgumentParser(description="Background update checker")
     parser.add_argument("--cache-path", required=True, type=Path, help="Path to cache file")
+    parser.add_argument(
+        "--current-version",
+        required=True,
+        help="Installed version of affinity-sdk (passed by spawning process)",
+    )
     args = parser.parse_args()
 
     cache_path: Path = args.cache_path
+    current: str = args.current_version
 
     try:
         import httpx
         from packaging.version import Version
 
-        import affinity
         from affinity.cli.update_check import (
             PYPI_URL,
             UpdateInfo,
@@ -46,8 +51,6 @@ def main() -> None:
         if latest is None:
             # Fallback to info.version if no stable releases found
             latest = data["info"]["version"]
-
-        current = affinity.__version__
 
         # Use proper version comparison
         try:

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-02-17
+
+### Highlights
+
+Update notifications now work reliably. Previously, having multiple Python environments (e.g., dev virtualenv + system install) could silently poison the update cache, and the first `config update-check` run always said "never checked" instead of just checking.
+
+### Fixed
+- **CLI**: `config update-check` now checks PyPI inline when cache is missing or stale, instead of showing "never checked"
+- **CLI**: Background update worker now receives version from spawning process, fixing version mismatch when multiple Python environments share a cache
+- **CLI**: Smarter cache invalidation — upgrading no longer discards the cache; it adapts it
+
 ## [1.6.1] - 2026-02-16
 
 ### Highlights

@@ -5,6 +5,7 @@ import os
 import re
 import sys
 from contextlib import suppress
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -546,6 +547,28 @@ def setup_key(ctx: CLIContext, *, scope: str | None, force: bool, validate: bool
     run_command(ctx, command="config setup-key", fn=fn)
 
 
+def _time_ago(dt: datetime) -> str:
+    """Format a datetime as a human-readable relative time string."""
+    now = datetime.now(timezone.utc)
+    aware_dt = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    delta = now - aware_dt
+    seconds = int(delta.total_seconds())
+
+    if seconds < 60:
+        return "just now"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    days = hours // 24
+    if days < 30:
+        return f"{days} day{'s' if days != 1 else ''} ago"
+    months = days // 30
+    return f"{months} month{'s' if months != 1 else ''} ago"
+
+
 @category("local")
 @config_group.command(name="update-check", cls=RichCommand)
 @click.option("--enable/--disable", "enable", default=None, help="Enable/disable update checks.")
@@ -586,7 +609,6 @@ def config_update_check(
         raise click.UsageError("--enable and --disable are mutually exclusive")
     if any(action_flags) and enable is not None:
         raise click.UsageError("Cannot combine action flags with --enable/--disable")
-    from datetime import datetime, timezone
 
     import affinity
 
@@ -604,12 +626,67 @@ def config_update_check(
     if background:
         state_dir = ctx.paths.state_dir
         try:
-            trigger_background_update_check(state_dir)
+            trigger_background_update_check(state_dir, current_version=affinity.__version__)
             # Silent success - no output for --background
             return
         except Exception as e:
             # Exit with code 1 on failure
             raise click.exceptions.Exit(1) from e
+
+    # Human-readable output for default (no flags) case
+    if ctx.output != "json" and not now and not status and enable is None:
+        enabled = ctx.update_check_enabled
+        if not enabled:
+            click.echo("Update checks: disabled")
+            raise click.exceptions.Exit(0)
+
+        mode = ctx.update_notify_mode
+        click.echo(f"Update checks: enabled ({mode})")
+
+        state_dir = ctx.paths.state_dir
+        cache_path = state_dir / "update_check.json"
+        cached = get_cached_update_info(cache_path)
+
+        if cached is None or cached.is_stale():
+            # User is explicitly asking — check now instead of deferring
+            latest = check_pypi_version()
+            if latest:
+                current = affinity.__version__
+                update_avail = is_update_available(current, latest)
+                info = UpdateInfo(
+                    current_version=current,
+                    latest_version=latest,
+                    checked_at=datetime.now(timezone.utc),
+                    update_available=update_avail,
+                )
+                save_update_info(cache_path, info)
+                click.echo(f"Current version: {current}")
+                if update_avail:
+                    click.echo(f"Latest version: {latest}")
+                    cmd = get_upgrade_command()
+                    click.echo(f"Status: update available \u2014 run `{cmd}`")
+                else:
+                    click.echo("Status: up to date")
+            else:
+                click.echo(
+                    "Status: could not reach PyPI"
+                    " \u2014 try `xaffinity config update-check --now` later"
+                )
+            raise click.exceptions.Exit(0)
+
+        click.echo(f"Current version: {cached.current_version}")
+        if cached.update_available and cached.latest_version:
+            click.echo(f"Latest version: {cached.latest_version}")
+
+        ts_str = cached.checked_at.strftime("%Y-%m-%d %H:%M UTC")
+        click.echo(f"Last checked: {_time_ago(cached.checked_at)} ({ts_str})")
+
+        if cached.update_available:
+            cmd = get_upgrade_command()
+            click.echo(f"Status: update available \u2014 run `{cmd}`")
+        else:
+            click.echo("Status: up to date")
+        raise click.exceptions.Exit(0)
 
     def fn(_ctx: CLIContext, warnings: list[str]) -> CommandOutput:
         state_dir = ctx.paths.state_dir
