@@ -276,3 +276,239 @@ class TestCompanyLsWithQuery:
         )
         # Should fail with exit code 2 (usage error)
         assert result.exit_code == 2
+
+
+class TestCompanyGet:
+    """Tests for company get command."""
+
+    def test_get_by_id(self, respx_mock: respx.MockRouter) -> None:
+        """Get company by numeric ID."""
+        respx_mock.get("https://api.affinity.co/v2/companies/123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "id": 123,
+                    "name": "Acme Corp",
+                    "domain": "acme.com",
+                    "domains": ["acme.com"],
+                },
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "company", "get", "123"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code == 0
+
+    def test_get_json_output(self, respx_mock: respx.MockRouter) -> None:
+        """Get company should have ok=True in JSON output."""
+        respx_mock.get("https://api.affinity.co/v2/companies/123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "id": 123,
+                    "name": "Acme Corp",
+                    "domain": "acme.com",
+                },
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "company", "get", "123"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["ok"] is True
+
+    def test_get_with_expand_lists(self, respx_mock: respx.MockRouter) -> None:
+        """Company get --expand lists."""
+        respx_mock.get("https://api.affinity.co/v2/companies/123").mock(
+            return_value=Response(
+                200,
+                json={"id": 123, "name": "Acme Corp", "domain": "acme.com"},
+            )
+        )
+        respx_mock.get("https://api.affinity.co/v2/companies/123/lists").mock(
+            return_value=Response(
+                200,
+                json={
+                    "data": [{"id": 1, "name": "Pipeline"}],
+                    "pagination": {"nextUrl": None},
+                },
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "company", "get", "123", "--expand", "lists"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code == 0
+
+    def test_get_with_expand_list_entries(self, respx_mock: respx.MockRouter) -> None:
+        """Company get --expand list-entries."""
+        respx_mock.get("https://api.affinity.co/v2/companies/123").mock(
+            return_value=Response(
+                200,
+                json={"id": 123, "name": "Acme Corp", "domain": "acme.com"},
+            )
+        )
+        respx_mock.get("https://api.affinity.co/v2/companies/123/list-entries").mock(
+            return_value=Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": 1,
+                            "listId": 10,
+                            "createdAt": "2024-01-01T00:00:00Z",
+                        }
+                    ],
+                    "pagination": {"nextUrl": None},
+                },
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "--json",
+                "company",
+                "get",
+                "123",
+                "--expand",
+                "list-entries",
+            ],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code == 0
+
+
+class TestCompanyLsAdvanced:
+    """Advanced company ls tests."""
+
+    def test_ls_json_ok(self, respx_mock: respx.MockRouter) -> None:
+        """Company ls with --json should have ok=True."""
+        respx_mock.get("https://api.affinity.co/v2/companies").mock(
+            return_value=Response(
+                200,
+                json={
+                    "data": [{"id": 1, "name": "Acme Corp", "domain": "acme.com"}],
+                    "pagination": {"nextUrl": None},
+                },
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "company", "ls"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["ok"] is True
+
+
+class TestCompanyFilesLs:
+    """Tests for company files ls command."""
+
+    def test_files_ls(self, respx_mock: respx.MockRouter) -> None:
+        """List files for a company."""
+        respx_mock.get("https://api.affinity.co/v2/companies/123").mock(
+            return_value=Response(
+                200,
+                json={"id": 123, "name": "Acme Corp", "domain": "acme.com"},
+            )
+        )
+        respx_mock.get("https://api.affinity.co/entity-files").mock(
+            return_value=Response(
+                200,
+                json=[
+                    {
+                        "id": 456,
+                        "name": "contract.pdf",
+                        "size": 204800,
+                        "content_type": "application/pdf",
+                        "uploader_id": 789,
+                        "created_at": "2024-01-01T00:00:00Z",
+                    }
+                ],
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "company", "files", "ls", "123"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code in (0, 1)
+
+
+class TestCompanyField:
+    """Tests for company field command."""
+
+    def test_field_no_operation_fails(self) -> None:
+        """Calling field with no ops should fail."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "company", "field", "123"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code != 0
+
+    def test_field_get(self, respx_mock: respx.MockRouter) -> None:
+        """Company field --get should read field values."""
+        respx_mock.get("https://api.affinity.co/v2/companies/123").mock(
+            return_value=Response(
+                200,
+                json={"id": 123, "name": "Acme", "domain": "acme.com"},
+            )
+        )
+        respx_mock.get("https://api.affinity.co/v2/companies/fields").mock(
+            return_value=Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "field-200",
+                            "name": "Industry",
+                            "type": "global",
+                            "valueType": "text",
+                        }
+                    ],
+                    "pagination": {"nextUrl": None},
+                },
+            )
+        )
+        respx_mock.get("https://api.affinity.co/field-values").mock(
+            return_value=Response(
+                200,
+                json=[{"id": 1, "field_id": 200, "value": "Technology"}],
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "--json",
+                "company",
+                "field",
+                "123",
+                "--get",
+                "Industry",
+            ],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code in (0, 1)

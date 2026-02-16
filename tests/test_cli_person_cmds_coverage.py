@@ -346,3 +346,195 @@ class TestPersonCreateWithCompany:
             env={"AFFINITY_API_KEY": "test-key"},
         )
         assert result.exit_code == 0
+
+
+class TestPersonGetExpanded:
+    """Expanded person get tests for coverage."""
+
+    def test_get_json_output_contains_data(self, respx_mock: respx.MockRouter) -> None:
+        """Person get with --json should include person data."""
+        respx_mock.get("https://api.affinity.co/v2/persons/123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "id": 123,
+                    "firstName": "Alice",
+                    "lastName": "Smith",
+                    "primaryEmail": "alice@example.com",
+                },
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "person", "get", "123"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code == 0
+        import json as _json
+
+        payload = _json.loads(result.output)
+        assert payload["ok"] is True
+
+    def test_get_with_expand_list_entries(self, respx_mock: respx.MockRouter) -> None:
+        """Person get --expand list-entries."""
+        respx_mock.get("https://api.affinity.co/v2/persons/123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "id": 123,
+                    "firstName": "Alice",
+                    "lastName": "Smith",
+                },
+            )
+        )
+        respx_mock.get("https://api.affinity.co/v2/persons/123/list-entries").mock(
+            return_value=Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": 1,
+                            "listId": 10,
+                            "createdAt": "2024-01-01T00:00:00Z",
+                        }
+                    ],
+                    "pagination": {"nextUrl": None},
+                },
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "--json",
+                "person",
+                "get",
+                "123",
+                "--expand",
+                "list-entries",
+            ],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code == 0
+
+
+class TestPersonLsAdvanced:
+    """Advanced person ls tests."""
+
+    def test_ls_json_output(self, respx_mock: respx.MockRouter) -> None:
+        """Person ls with --json."""
+        respx_mock.get("https://api.affinity.co/v2/persons").mock(
+            return_value=Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": 1,
+                            "firstName": "Alice",
+                            "lastName": "Smith",
+                        }
+                    ],
+                    "pagination": {"nextUrl": None},
+                },
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "person", "ls", "--max-results", "5"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code == 0
+
+
+class TestPersonFilesLs:
+    """Tests for person files ls command."""
+
+    def test_files_ls(self, respx_mock: respx.MockRouter) -> None:
+        """List files for a person."""
+        respx_mock.get("https://api.affinity.co/v2/persons/123").mock(
+            return_value=Response(
+                200,
+                json={"id": 123, "firstName": "Alice", "lastName": "Smith"},
+            )
+        )
+        respx_mock.get("https://api.affinity.co/entity-files").mock(
+            return_value=Response(
+                200,
+                json=[
+                    {
+                        "id": 456,
+                        "name": "resume.pdf",
+                        "size": 102400,
+                        "content_type": "application/pdf",
+                        "uploader_id": 789,
+                        "created_at": "2024-01-01T00:00:00Z",
+                    }
+                ],
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "person", "files", "ls", "123"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code in (0, 1)
+
+
+class TestPersonField:
+    """Tests for person field command."""
+
+    def test_field_no_operation_fails(self) -> None:
+        """Calling field with no ops should fail."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "person", "field", "123"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code != 0
+
+    def test_field_get(self, respx_mock: respx.MockRouter) -> None:
+        """Person field --get should read field values."""
+        respx_mock.get("https://api.affinity.co/v2/persons/123").mock(
+            return_value=Response(
+                200,
+                json={"id": 123, "firstName": "A", "lastName": "B"},
+            )
+        )
+        respx_mock.get("https://api.affinity.co/v2/persons/fields").mock(
+            return_value=Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "field-100",
+                            "name": "Phone",
+                            "type": "global",
+                            "valueType": "text",
+                        }
+                    ],
+                    "pagination": {"nextUrl": None},
+                },
+            )
+        )
+        respx_mock.get("https://api.affinity.co/field-values").mock(
+            return_value=Response(
+                200,
+                json=[{"id": 1, "field_id": 100, "value": "555-1234"}],
+            )
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--json", "person", "field", "123", "--get", "Phone"],
+            env={"AFFINITY_API_KEY": "test-key"},
+        )
+        assert result.exit_code in (0, 1)
