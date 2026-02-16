@@ -115,10 +115,19 @@ def check_urls(
 
     website_url: str = server_json.get("websiteUrl", "")
     mcpb_docs = mcpb_conf.get("MCPB_DOCUMENTATION", "")
-    if website_url and mcpb_docs and website_url != mcpb_docs:
+    # websiteUrl (project website) and MCPB_DOCUMENTATION (MCP docs)
+    # may legitimately differ when the MCP server lives in a repo
+    # subfolder — only flag if they share no common base.
+    if (
+        website_url
+        and mcpb_docs
+        and not mcpb_docs.startswith(website_url)
+        and not website_url.startswith(mcpb_docs)
+    ):
         errors.append(
-            f"server.json websiteUrl '{website_url}' differs "
-            f"from mcpb.conf MCPB_DOCUMENTATION '{mcpb_docs}'"
+            f"server.json websiteUrl '{website_url}' and "
+            f"mcpb.conf MCPB_DOCUMENTATION '{mcpb_docs}' "
+            f"share no common URL base"
         )
 
 
