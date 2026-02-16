@@ -382,6 +382,14 @@ def _hint_for_validation_message(message: str) -> str | None:
             "Split your query into multiple 1-year ranges."
         )
 
+    # Interaction create: missing internal/external person IDs
+    if "person_ids" in msg_lower and ("internal" in msg_lower or "external" in msg_lower):
+        return (
+            "Interactions require at least one internal person (workspace user) and one "
+            "external person (contact). Use `xaffinity whoami` to find your person ID, "
+            "or pass --include-me to auto-include yourself."
+        )
+
     return None
 
 

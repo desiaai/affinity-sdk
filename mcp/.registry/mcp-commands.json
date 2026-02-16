@@ -301,8 +301,8 @@
       "relatedCommands": ["interaction ls", "interaction update"]
     },
     "interaction create": {
-      "whenToUse": "Log a meeting, call, or email. Requires --type and --participants.",
-      "relatedCommands": ["interaction ls", "note create"]
+      "whenToUse": "Log a meeting, call, or email. Requires --type and at least one --person-id. Must include both an internal person (workspace user) and an external person (contact). Use --include-me to auto-include your person ID.",
+      "relatedCommands": ["interaction ls", "note create", "whoami"]
     },
     "interaction update": {
       "whenToUse": "Update an existing interaction.",

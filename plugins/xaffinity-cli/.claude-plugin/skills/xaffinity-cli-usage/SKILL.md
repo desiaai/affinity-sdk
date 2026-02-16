@@ -135,6 +135,26 @@ xaffinity --readonly interaction ls --type email --person-id 456 \
 
 **WARNING:** Without `--days` or `--after`, the CLI fetches ALL interactions since 2010. Multi-year ranges are auto-chunked into 365-day API calls. `--days 3650` = ~10 API calls per type. **Always use `--days` or `--max-results` to bound the query.**
 
+### Creating Interactions
+
+Interactions require **both internal AND external** person IDs:
+- **Internal**: A workspace user (team member). Find yours with `xaffinity whoami`.
+- **External**: A contact (non-team-member person in your CRM).
+
+```bash
+# Create a meeting — use --include-me to auto-add your person ID
+xaffinity interaction create --type meeting \
+  --person-id EXTERNAL_CONTACT_ID --include-me \
+  --content "Discussed partnership" --date 2025-06-15T14:00:00Z --json
+
+# Without --include-me, specify all person IDs explicitly
+xaffinity interaction create --type email \
+  --person-id YOUR_PERSON_ID --person-id CONTACT_ID \
+  --content "Follow-up email" --date 2025-06-15T14:00:00Z --json
+```
+
+**Common error:** Forgetting to include an internal person ID causes a validation error. Use `--include-me` to avoid this.
+
 ## Expand/Include (N+1 Warning)
 
 `--expand` on `list export` triggers **one additional API call per record**. Use `--max-results` to control cost.

@@ -188,6 +188,19 @@ Returns:
 - `lastEmail.date`, `lastEmail.daysSince`
 - `lastInteraction.date`, `lastInteraction.daysSince`
 
+### Create an interaction
+Interactions require at least one internal person (workspace user) and one external person (contact). Use `--include-me` to auto-include the current user.
+```bash
+# Log a meeting (--include-me auto-adds your person ID as internal)
+interaction create --type meeting --person-id 67890 --include-me \
+  --content "Discussed Q3 goals" --date 2025-06-15T14:00:00Z
+
+# Log an email with explicit person IDs
+interaction create --type email --person-id 12345 --person-id 67890 \
+  --content "Follow-up on proposal" --date 2025-06-15T10:00:00Z --direction outgoing
+```
+Note: Find your person ID with `whoami`. The `user.id` field from whoami IS your person ID.
+
 ### Find unreplied messages
 ```bash
 list export Dealflow --check-unreplied                     # Find unreplied incoming messages (email/chat)
