@@ -198,6 +198,8 @@ run_xaffinity_readonly person ls --query "test" --output json --quiet
 | `mcp/COMPATIBILITY` | CLI version requirements | Manual |
 | `mcp/mcpb.conf` | MCPB bundle config | Manual (version from VERSION) |
 | `mcp/mcp-bash.lock` | MCP-bash framework version + commit hash | Manual |
+| `mcp/mcp-publisher.lock` | MCP Registry publisher CLI version | Manual |
+| `mcp/server.json` | MCP Registry metadata template (patched by CI) | Manual (version/hash patched at release time) |
 
 ## MCP-Bash Framework Pinning
 
@@ -274,3 +276,4 @@ the release notes lack context.
 - [ ] Pre-commit ran (syncs server.meta.json)
 - [ ] Changes merged to `main`
 - [ ] Verify release workflow completed successfully
+- [ ] Verify MCP Registry publish step succeeded (non-blocking; check workflow annotations)

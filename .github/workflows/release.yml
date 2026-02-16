@@ -162,6 +162,9 @@ jobs:
           python tools/generate_mcp_command_registry.py
           git diff --exit-code mcp/.registry/commands.generated.json
 
+      - name: Validate MCP Registry metadata consistency
+        run: python tools/validate_mcp_registry_metadata.py --verbose
+
   build:
     runs-on: ubuntu-latest
     needs: [validate, test]
