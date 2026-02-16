@@ -230,7 +230,7 @@ def test_list_create_and_entry_ops(respx_mock: respx.MockRouter) -> None:
                     {
                         "id": "field-1",
                         "name": "Status",
-                        "valueType": 0,
+                        "valueType": "text",
                         "allowsMultiple": False,
                         "listId": 123,
                     }
@@ -247,7 +247,7 @@ def test_list_create_and_entry_ops(respx_mock: respx.MockRouter) -> None:
                     {
                         "id": "field-1",
                         "name": "Status",
-                        "value_type": 0,
+                        "value_type": 6,
                         "allows_multiple": False,
                         "list_id": 123,
                     }

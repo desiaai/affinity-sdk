@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-02-16
+
+### Fixed
+- **CLI**: Person/company field writes (`--set`, `--append`) now correctly wrap entity IDs in `{"id": <int>}` for the V2 API. Previously sent raw integers, causing `validation_error: value at /value/data is not null`.
+- **CLI**: `--append` on `person-multi`/`company-multi` fields now merges with existing values instead of silently replacing them (same fix already existed for `dropdown-multi`).
+- **CLI**: Repeated `--append` on the same multi-value field (e.g., `--append Tags A --append Tags B`) now aggregates into a single write, preventing the second write from overwriting the first.
+- **CLI**: V1 API `allows_multiple` promotion now applies to `person` and `company` field types (previously only `dropdown` was promoted to its `-multi` variant).
+
 ## Plugin Releases — 2026-02-15
 
 Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
