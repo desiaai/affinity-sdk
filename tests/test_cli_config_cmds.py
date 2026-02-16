@@ -617,7 +617,7 @@ class TestConfigUpdateCheckHumanOutput:
         assert "Current version:" in result.output
         assert "Latest version: 99.0.0" in result.output
         assert "Status: update available" in result.output
-        assert "pip install" in result.output
+        assert "install --upgrade" in result.output
 
     def test_json_output_unchanged(self, runner, monkeypatch):
         """--json should still use the run_command path (not human output)."""
