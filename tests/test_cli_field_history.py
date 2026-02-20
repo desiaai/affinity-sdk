@@ -189,6 +189,21 @@ def test_field_history_requires_exactly_one_selector() -> None:
     assert "only one" in result.output.lower()
 
 
+@pytest.mark.req("CLI-FIELD-LS-LIST-ALIAS")
+def test_field_ls_list_alias(respx_mock: respx.MockRouter) -> None:
+    """--list alias works identically to --list-id on field ls."""
+    respx_mock.get("https://api.affinity.co/fields").mock(return_value=Response(200, json=[]))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--json", "field", "ls", "--list", "Pipeline"],
+        env={"AFFINITY_API_KEY": "test-key"},
+    )
+    # Should not fail with "No such option: --list"
+    assert "No such option" not in (result.output + str(result.exception or ""))
+
+
 def test_field_history_missing_field_id() -> None:
     """Error when FIELD_ID argument is missing."""
     runner = CliRunner()

@@ -123,6 +123,7 @@ def _validate_exactly_one_selector(
 @field_group.command(name="ls", cls=RichCommand)
 @click.option(
     "--list-id",
+    "--list",
     type=str,
     default=None,
     help="Filter by list (ID or name).",
