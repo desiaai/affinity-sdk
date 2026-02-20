@@ -5,6 +5,21 @@ All notable changes to the xaffinity MCP server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-02-21
+
+### Highlights
+
+New pipeline history analysis skill guides multi-step workflows for deal stage transitions, funnel conversion, and time-in-stage metrics. Also adds `field history-bulk` to the command registry for LLM discoverability.
+
+### Added
+- Pipeline history analysis skill (`pipeline-history`) with 5-step workflow: identify status field, export current state, dry-run estimate, fetch history, analyze transitions
+- `field history-bulk` command in MCP command registry with `whenToUse` guidance, examples, and `requiresDryRun` behavior
+- Bulk field change history section in data model resource
+
+### Changed
+- Updated `field history` registry entry to reference `field history-bulk` for bulk operations
+- Updated CLI compatibility to require CLI 1.7.0 (for `field history-bulk` and `--list` alias)
+
 ## [1.18.1] - 2026-02-15
 
 ### Highlights

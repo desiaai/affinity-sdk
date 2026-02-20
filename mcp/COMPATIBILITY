@@ -1,9 +1,13 @@
 # mcp/COMPATIBILITY - CLI version requirements for this MCP server
 # Usage: source "${SCRIPT_DIR}/COMPATIBILITY"
 
-CLI_MIN_VERSION="1.0.3"
-CLI_MAX_VERSION="1.0.3"
+CLI_MIN_VERSION="1.7.0"
+CLI_MAX_VERSION="1.7.0"
 
+# MCP 1.19.0 requires CLI 1.7.0 for:
+# - `field history-bulk` command: Batch field change history (pipeline analysis skill)
+# - `--list` alias on `field ls` and `field history-bulk`
+#
 # MCP 1.17.1 requires CLI 1.0.3 for:
 # - Query include: Incremental progress emission during N+1 operations (prevents MCP timeout)
 #

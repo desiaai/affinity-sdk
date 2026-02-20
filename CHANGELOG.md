@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-02-21
+
+### Highlights
+
+New `field history-bulk` command fetches field change history across an entire list in one shot — useful for pipeline stage analysis, funnel conversion, and time-in-stage metrics. Also fixes `--dotenv` to search upward for `.env` files (matching standard dotenv behavior) and hardens the PreToolUse hook with a three-tier API key check.
+
+### Added
+- **CLI**: `field history-bulk` command for batch field change history across lists. Supports `--list-id` (with `--all`/`--max-results` bounding), `--list-entry-ids` for specific entries, `--action-type` filtering, `--dry-run` for API cost estimation, and concurrent fetching via `XAFFINITY_CONCURRENCY` env var. Partial failures are reported as warnings without blocking successful entries.
+- **CLI**: `--list` alias for `--list-id` on `field ls` and `field history-bulk` commands (LLM-friendly shorthand).
+- **MCP Plugin**: Pipeline history analysis skill (`pipeline-history`) with 5-step workflow: identify status field, export current state, dry-run estimate, fetch history, analyze transitions.
+
+### Fixed
+- **CLI**: `--dotenv` now searches upward for `.env` files using `find_dotenv(usecwd=True)`, matching standard python-dotenv behavior. Previously only checked the current working directory, which failed in Cowork VM sessions where the working directory differs from the `.env` location.
+- **CLI Plugin**: PreToolUse hook (`pre-xaffinity.sh`) now uses three-tier API key detection: (1) `AFFINITY_API_KEY` env var, (2) `--dotenv` check-key, (3) plain check-key (config.toml). Previously only checked the env var, blocking commands when the key was configured via `.env` or config file.
+
+### Documentation
+- Added `list export --json` output structure documentation to data model resource (`field` key details, `--field`/`--field-type` requirement).
+- Added `field history-bulk` to MCP command registry for LLM discoverability.
+- Added field change history section to data model resource.
+
+### CLI Plugin 1.5.5
+
+#### Fixed
+- PreToolUse hook: three-tier API key detection (env var → dotenv → config.toml)
+
+### MCP Plugin 1.19.0
+
+#### Added
+- Pipeline history analysis skill for deal stage transition workflows
+
 ## [1.6.2] - 2026-02-17
 
 ### Highlights

@@ -235,6 +235,33 @@ Use `field history` to:
 
 **Note**: Requires the field ID (from `field ls`) and exactly one entity selector (`--person-id`, `--company-id`, `--opportunity-id`, or `--list-entry-id`).
 
+### Bulk field change history (pipeline analysis)
+For pipeline stage analysis, funnel conversion, or time-in-stage metrics across a whole list, use `field history-bulk`:
+
+```bash
+# Step 1: Find the status field ID
+field ls --list-id Dealflow                          # Look for a dropdown field like "Status"
+
+# Step 2: Estimate API cost (ALWAYS do this first)
+field history-bulk field-358027 --list-id Dealflow --dry-run
+
+# Step 3: Fetch history (bounded)
+field history-bulk field-358027 --list-id Dealflow --max-results 50    # Sample N entries
+field history-bulk field-358027 --list-id Dealflow --all               # All entries (can be thousands of API calls)
+field history-bulk field-358027 --list-entry-ids 100,200,300           # Specific entries only
+field history-bulk field-358027 --list-id Dealflow --max-results 100 --action-type update  # Only stage changes
+```
+
+Each row has: `id`, `fieldId`, `entityId`, `listEntryId`, `entityName`, `actionType` (`create`/`update`/`delete`), `value`, `changedAt`, `changerName`, `changer`.
+
+**Reconstructing transitions:** Sort events per entity by `changedAt`. Each row's `value` is the value AT that point — compare consecutive rows to derive old→new transitions.
+
+**Important:**
+- Each list entry = 1 API call. A list with 9,000 entries = 9,000 API calls with `--all`.
+- Always `--dry-run` first to see `estimatedApiCalls`.
+- With `--list-entry-ids`, `entityName` is null — join with `list export` data if names are needed.
+- Partial failures (e.g., deleted entries) are reported as warnings without blocking other entries.
+
 ## Common Mistakes
 
 ### Mistake 1: Looking up IDs unnecessarily
