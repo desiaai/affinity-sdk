@@ -297,10 +297,27 @@ def cli(
         raise click.BadParameter("must be positive", param_hint="'--timeout'")
     if max_columns is not None and max_columns <= 0:
         raise click.BadParameter("must be positive", param_hint="'--max-columns'")
-    # If user explicitly provided --env-file (not the default), implicitly enable dotenv.
-    # This follows CLI best practices: explicit file path = user expects it to be used.
-    if env_file != ".env":
+    # Detect whether --env-file was explicitly provided vs default
+    env_file_is_explicit = False
+    get_source = getattr(click_ctx, "get_parameter_source", None)
+    if callable(get_source):
+        source_enum = getattr(click.core, "ParameterSource", None)
+        default_source = getattr(source_enum, "DEFAULT", None) if source_enum else None
+        env_file_src = get_source("env_file")
+        if env_file_src not in (None, default_source):
+            env_file_is_explicit = True
+
+    # If user explicitly provided --env-file, implicitly enable dotenv.
+    if env_file_is_explicit:
         dotenv = True
+
+    # When dotenv is active with default --env-file, search upward for .env
+    if dotenv and not env_file_is_explicit:
+        from dotenv import find_dotenv
+
+        found = find_dotenv(usecwd=True)
+        if found:
+            env_file = found
 
     # Validate env file exists when dotenv is enabled (Bug #40)
     if dotenv and not Path(env_file).exists():
