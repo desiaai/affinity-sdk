@@ -27,12 +27,20 @@ if [[ "$command" =~ xaffinity[[:space:]]*(--help|--version) ]] || \
   exit 0
 fi
 
-# Check if API key is configured
-check_result=$(xaffinity --json config check-key 2>/dev/null || echo '{"data":{"configured":false}}')
-configured=$(echo "$check_result" | jq -r '.data.configured // false')
+# Check 1: env var (fast path — no subprocess)
+if [ -n "${AFFINITY_API_KEY:-}" ]; then
+  exit 0
+fi
 
-if [ "$configured" = "true" ]; then
-  exit 0  # Key configured, allow command
+# Check 2: xaffinity check-key WITH --dotenv (covers .env file)
+# Note: --dotenv hard-fails if .env doesn't exist, so we fall through on failure
+if xaffinity --dotenv --json config check-key 2>/dev/null | jq -e '.data.configured == true' >/dev/null 2>&1; then
+  exit 0
+fi
+
+# Check 3: xaffinity check-key WITHOUT --dotenv (covers config.toml)
+if xaffinity --json config check-key 2>/dev/null | jq -e '.data.configured == true' >/dev/null 2>&1; then
+  exit 0
 fi
 
 # Not configured - block with guidance
