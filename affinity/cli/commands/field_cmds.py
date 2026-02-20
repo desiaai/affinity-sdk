@@ -19,7 +19,7 @@ from affinity.types import (
 
 from ..click_compat import RichCommand, RichGroup, click
 from ..context import CLIContext
-from ..decorators import category, destructive
+from ..decorators import category, destructive, progress_capable
 from ..errors import CLIError
 from ..mcp_limits import apply_mcp_limits
 from ..options import csv_output_options, output_options
@@ -438,6 +438,7 @@ def _get_entity_name_from_entry(entry: Any) -> str | None:
     return name
 
 
+@progress_capable
 @category("read")
 @field_group.command(name="history-bulk", cls=RichCommand)
 @click.argument("field_id", type=str)

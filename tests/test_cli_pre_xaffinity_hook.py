@@ -78,6 +78,59 @@ def test_hook_allows_when_env_var_set():
 
 
 @pytest.mark.req("CLI-PRETOOL-HOOK")
+def test_hook_allows_via_dotenv_check(tmp_path):
+    """Hook exits 0 when xaffinity --dotenv check-key reports configured (tier 2)."""
+    # Create mock xaffinity that only succeeds with --dotenv
+    mock_bin = tmp_path / "xaffinity"
+    mock_bin.write_text(
+        textwrap.dedent("""\
+        #!/bin/bash
+        if [[ "$*" == *"--dotenv"* ]]; then
+            echo '{"data":{"configured":true}}'
+        else
+            echo '{"data":{"configured":false}}'
+        fi
+    """)
+    )
+    mock_bin.chmod(mock_bin.stat().st_mode | stat.S_IEXEC)
+
+    jq_dir = str(Path(shutil.which("jq") or "/usr/bin/jq").parent)
+    system_dirs = {jq_dir, "/bin", "/usr/bin"}
+    minimal_path = os.pathsep.join([str(tmp_path), *sorted(system_dirs)])
+
+    env = {"PATH": minimal_path, "HOME": str(tmp_path)}
+    result = _run_hook("xaffinity --readonly person ls --json", env_override=env, cwd=str(tmp_path))
+    assert result.returncode == 0
+
+
+@pytest.mark.req("CLI-PRETOOL-HOOK")
+def test_hook_allows_via_plain_check(tmp_path):
+    """Hook exits 0 when plain check-key (no --dotenv) reports configured (tier 3 / config.toml)."""
+    # Create mock xaffinity that only succeeds WITHOUT --dotenv
+    mock_bin = tmp_path / "xaffinity"
+    mock_bin.write_text(
+        textwrap.dedent("""\
+        #!/bin/bash
+        if [[ "$*" == *"--dotenv"* ]]; then
+            echo '{"data":{"configured":false}}'
+            exit 1
+        else
+            echo '{"data":{"configured":true}}'
+        fi
+    """)
+    )
+    mock_bin.chmod(mock_bin.stat().st_mode | stat.S_IEXEC)
+
+    jq_dir = str(Path(shutil.which("jq") or "/usr/bin/jq").parent)
+    system_dirs = {jq_dir, "/bin", "/usr/bin"}
+    minimal_path = os.pathsep.join([str(tmp_path), *sorted(system_dirs)])
+
+    env = {"PATH": minimal_path, "HOME": str(tmp_path)}
+    result = _run_hook("xaffinity --readonly person ls --json", env_override=env, cwd=str(tmp_path))
+    assert result.returncode == 0
+
+
+@pytest.mark.req("CLI-PRETOOL-HOOK")
 def test_hook_blocks_when_no_key(tmp_path):
     """Hook blocks xaffinity commands when no key source is available."""
     # Create a mock xaffinity that always reports unconfigured
