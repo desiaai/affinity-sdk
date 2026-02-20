@@ -113,6 +113,30 @@ nextCursor: eyJ2IjoxLCJxaCI6IjZmYzJhZDJkYTI5...
 _cursorMode: streaming
 ```
 
+## `list export` Output Format
+
+The `list export` command uses a different JSON structure than `query`:
+
+```json
+{
+  "data": {
+    "rows": [
+      {"listEntryId": 123, "entityType": "company", "entityId": 456,
+       "entityName": "Acme", "Status": "Active", "Deal Size": 1000000}
+    ]
+  },
+  "meta": {
+    "pagination": {"rows": {"nextCursor": "...", "prevCursor": null}}
+  }
+}
+```
+
+**Key differences from `query` output:**
+- Data key is `rows` (not an entity-type-named array)
+- Each row includes `listEntryId`, `entityType`, `entityId`, `entityName` as base fields
+- Custom field values are keyed by **field name** (not field ID)
+- Pagination is under `meta.pagination.rows`
+
 ## Performance
 
 ### Expand InteractionDates

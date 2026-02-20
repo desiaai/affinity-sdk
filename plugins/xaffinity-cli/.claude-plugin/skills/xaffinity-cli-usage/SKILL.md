@@ -103,6 +103,8 @@ xaffinity --readonly company get domain:acme.com --json
 # List entries from a named list
 xaffinity --readonly list export "Pipeline" --max-results 20 --json
 
+**JSON output key is `data.rows`** (not `data.listEntries` or `data.entries`). Each row contains `listEntryId`, `entityType`, `entityId`, `entityName`, plus field values keyed by field name.
+
 # List all available lists
 xaffinity --readonly list ls --json
 

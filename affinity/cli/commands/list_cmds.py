@@ -570,6 +570,16 @@ def list_export(
     - `xaffinity list export "Pipeline" --field Status --field "Deal Size" --all`
     - `xaffinity list export "Pipeline" --expand persons --all --csv > opps-with-persons.csv`
     - `xaffinity list export "Pipeline" --expand persons --expand companies --all`
+
+    JSON output structure:
+
+        {"data": {"rows": [{"listEntryId": 123, "entityType": "company",
+        "entityId": 456, "entityName": "Acme", "Status": "Active", ...}]},
+        "meta": {"pagination": {"rows": {"nextCursor": "...", "prevCursor": null}}}}
+
+    Each row always contains: listEntryId, entityType, entityId, entityName,
+    plus field values keyed by field name. Note: the key is "rows", not
+    "listEntries" or "entries".
     """
 
     def fn(ctx: CLIContext, warnings: list[str]) -> CommandOutput:
