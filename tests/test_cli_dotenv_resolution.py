@@ -18,6 +18,7 @@ import pytest
 pytest.importorskip("rich_click")
 pytest.importorskip("rich")
 pytest.importorskip("platformdirs")
+pytest.importorskip("dotenv")
 
 from click.testing import CliRunner
 
