@@ -313,7 +313,7 @@ def cli(
 
     # When dotenv is active with default --env-file, search upward for .env
     if dotenv and not env_file_is_explicit:
-        from dotenv import find_dotenv
+        from dotenv import find_dotenv  # type: ignore[import-not-found]
 
         found = find_dotenv(usecwd=True)
         if found:
