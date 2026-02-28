@@ -29,6 +29,8 @@ This MUST be your first action when handling any Affinity request.
 2. Direct them: Affinity -> Settings -> API -> Generate New Key
 3. Tell them to run: `xaffinity config setup-key` (do NOT run it for them - it's interactive)
 
+**Session cache:** Set up automatically at session start. If `AFFINITY_SESSION_CACHE` is not set, run: `export AFFINITY_SESSION_CACHE=$(xaffinity session start)` — this shares metadata across commands and avoids redundant API calls.
+
 ## IMPORTANT: Write Operations Require Explicit User Request
 
 **Always use `--readonly` unless user explicitly requests writes.**
@@ -74,6 +76,53 @@ You: xaffinity person delete 123 --yes
 | `--help` | Discover command options (USE THIS, don't guess flags) |
 
 **IMPORTANT: Always limit results.** Use `--max-results` on every `ls`, `list export`, `interaction ls`, and `note ls` command. Start small (10-50), increase only if needed. Unbounded queries can return hundreds of KB of data and make many API calls.
+
+**Extract only what you need.** When you know which fields you need, pipe through `jq` instead of dumping the full JSON response. Skip this when exploring data for the first time.
+
+```bash
+# Get a person's ID for a follow-up command
+xaffinity --readonly person get email:alice@example.com --json | jq -r '.data.person.id'
+
+# Get just the fields you need to answer the user
+xaffinity --readonly person get 123 --json | jq '.data.person | {id, firstName, lastName, primaryEmail}'
+
+# Get entity names from a list export
+xaffinity --readonly list export "Pipeline" --max-results 20 --json | jq '[.data.rows[] | {entityName, entityId}]'
+```
+
+## Multi-Source Tasks: Use a Script
+
+When a task needs data from **2 or more** CLI commands (e.g., person details + interactions + list entries), write a **single bash script** instead of running commands one-by-one. Each separate command dumps its full JSON into the conversation — chaining 3-5 commands can waste hundreds of KB of context on raw data you only need a few facts from.
+
+**Use a script when:** combining entity details with interactions, cross-referencing list entries with entities, generating summaries from multiple queries.
+
+**A single command is fine when:** simple lookups (`person get email:...`), single writes (`note create`), quick searches (`person ls --query`).
+
+### Bash + jq
+
+Session caching is already active (set up at session start), so just use `jq` to extract the summary:
+
+```bash
+# Example: "Summarize my interactions with Acme in Q1"
+CID=$(xaffinity --readonly company get domain:acme.com --json \
+  | jq -r '.data.company.id')
+
+xaffinity --readonly interaction ls --type all --company-id "$CID" \
+  --after 2025-01-01T00:00:00Z --before 2025-03-31T23:59:59Z \
+  --max-results 200 --json \
+  | jq '{
+    company: "Acme",
+    total: (.data.interactions | length),
+    by_type: (.data.interactions | group_by(.type)
+              | map({type: .[0].type, count: length}))
+  }'
+```
+
+This outputs ~200 bytes instead of ~100 KB of raw JSON.
+
+### When to use Python instead
+
+For complex joins across 3+ sources, conditional logic, pagination over large datasets, or when you need SDK features like `F` filters or `FieldResolver`, write a Python script using the Affinity SDK. The SDK skill has patterns for this.
 
 ## Selectors: Use Names, Not Just IDs
 

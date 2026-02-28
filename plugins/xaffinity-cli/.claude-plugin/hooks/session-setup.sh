@@ -27,7 +27,18 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ] && ! grep -qF '/.local/bin' "$CLAUDE_ENV_FILE" 
   echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
 fi
 
-# 3. Report status (non-blocking, stderr only)
+# 3. Start session cache (shares metadata across CLI invocations)
+if command -v xaffinity &>/dev/null && [ -z "${AFFINITY_SESSION_CACHE:-}" ]; then
+  cache_dir=$(xaffinity session start 2>/dev/null) || true
+  if [ -n "${cache_dir:-}" ]; then
+    export AFFINITY_SESSION_CACHE="$cache_dir"
+    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      echo "export AFFINITY_SESSION_CACHE=\"$cache_dir\"" >> "$CLAUDE_ENV_FILE"
+    fi
+  fi
+fi
+
+# 4. Report status (non-blocking, stderr only)
 # Uses --dotenv to check if .env has a valid key without exposing it
 if ! command -v xaffinity &>/dev/null; then
   echo "xaffinity not available — install with: pip install 'affinity-sdk[cli]'" >&2

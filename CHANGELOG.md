@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-03-01
+
+### Highlights
+
+Plugin skills now guide agents to consolidate multi-source CRM queries into single scripts instead of running separate commands that dump raw JSON into the conversation. The CLI plugin also auto-starts session caching at session begin, so metadata is shared across all commands without manual setup.
+
+### CLI Plugin 1.5.6
+
+#### Added
+- Skill: "Multi-Source Tasks" section guiding agents to write consolidated bash scripts (with session cache + jq) instead of running separate CLI commands that dump raw JSON into context
+- Skill: "Extract only what you need" guidance with jq examples for single-command output filtering
+- Skill: session cache fallback instruction for environments without automatic setup
+- SessionStart hook: automatic session cache initialization (`xaffinity session start`) with `CLAUDE_ENV_FILE` persistence for Cowork
+
+### SDK Plugin 1.5.4
+
+#### Added
+- Skill: "Multi-Source Tasks: Output Only the Summary" section guiding agents to print concise summaries instead of raw `model_dump_json()` output when combining multiple data sources
+
 ## [1.7.0] - 2026-02-21
 
 ### Highlights
