@@ -57,6 +57,7 @@ jobs:
             --no-progress
             --exclude '^https?://'
             --exclude '^mailto:'
+            --root-dir ${{ github.workspace }}/site
             site/
 
   deploy:
