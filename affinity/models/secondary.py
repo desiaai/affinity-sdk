@@ -155,7 +155,12 @@ class Interaction(AffinityModel):
 
 
 class InteractionCreate(AffinityModel):
-    """Data for creating an interaction (V1 API)."""
+    """Data for creating an interaction (V1 API).
+
+    Note: The API only supports person IDs as participants. The Affinity UI's
+    "Also add to... search for an entity" feature (associating an interaction
+    with a company or opportunity) has no API equivalent.
+    """
 
     type: InteractionType
     person_ids: list[PersonId]

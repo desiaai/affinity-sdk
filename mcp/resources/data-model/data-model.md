@@ -201,6 +201,8 @@ interaction create --type email --person-id 12345 --person-id 67890 \
 ```
 Note: Find your person ID with `whoami`. The `user.id` field from whoami IS your person ID.
 
+**Limitation:** The API only supports adding person IDs as participants. The UI's "Also add to... search for an entity" feature (which associates an interaction with a company or opportunity) has no API equivalent.
+
 ### Find unreplied messages
 ```bash
 list export Dealflow --check-unreplied                     # Find unreplied incoming messages (email/chat)
@@ -282,6 +284,9 @@ company ls --filter "Status=New"
 # ✓ RIGHT - use list export for list-specific fields
 list export Dealflow --filter "Status=New"
 ```
+
+### Mistake 3: Trying to set "Current Organization" via API
+"Current Organization" is a derived/system-managed field — it cannot be set or updated directly. It is driven by enrichment data and email domain. "Current Job Title" can be updated after person creation using `field update`, but neither field can be set during `person create`.
 
 ### Output Format Recommendations
 

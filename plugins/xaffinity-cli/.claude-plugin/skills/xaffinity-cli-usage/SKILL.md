@@ -1,11 +1,6 @@
 ---
 name: xaffinity-cli-usage
-description: >
-  Runs xaffinity CLI commands to search, export, filter, and manage Affinity CRM data.
-  Use when user asks to find people/companies/opportunities, export lists, query CRM data,
-  get interactions, or mentions "xaffinity", "export to CSV", "Affinity CLI".
-  Supports structured queries with aggregation/groupBy, saved-view server-side filtering,
-  interaction history with date bounds, and CSV/JSON/TOON export.
+description: "Runs xaffinity CLI commands to search, export, filter, and manage Affinity CRM data. Use when user asks to find people/companies/opportunities, export lists, query CRM data, get interactions, or mentions xaffinity, export to CSV, Affinity CLI."
 ---
 
 # xaffinity CLI Usage
@@ -29,7 +24,7 @@ This MUST be your first action when handling any Affinity request.
 2. Direct them: Affinity -> Settings -> API -> Generate New Key
 3. Tell them to run: `xaffinity config setup-key` (do NOT run it for them - it's interactive)
 
-**Session cache:** Set up automatically at session start. If `AFFINITY_SESSION_CACHE` is not set, run: `export AFFINITY_SESSION_CACHE=$(xaffinity session start)` — this shares metadata across commands and avoids redundant API calls.
+**Session cache:** Started automatically on first xaffinity use. If `AFFINITY_SESSION_CACHE` is not set, it will be initialized when you run your first xaffinity command — this shares metadata across commands and avoids redundant API calls.
 
 ## IMPORTANT: Write Operations Require Explicit User Request
 
@@ -342,11 +337,17 @@ xaffinity --readonly note ls --person-id 123 --max-results 20 --json
 # Then filter for isMeeting: true in the output
 ```
 
+### Cannot associate interactions with companies/opportunities
+The UI's "Also add to... search for an entity" feature has no API equivalent. The API only supports adding person IDs as participants — you cannot directly link an interaction to a company or opportunity.
+
 ### --query and --filter are mutually exclusive
 Use `--query` for fuzzy text search or `--filter` for structured filtering. Cannot combine both.
 
 ### Opportunities are bound to one list
 Cannot search opportunities globally. Access them via `list export` on their specific list.
+
+### "Current Organization" is read-only via API
+This is a derived/system-managed field driven by enrichment data and email domain — it cannot be set or updated directly via the API. "Current Job Title" can be updated after person creation using `field update`. Neither field can be set during `person create`.
 
 ### Global organizations are read-only
 Companies with `global: true` cannot be modified.

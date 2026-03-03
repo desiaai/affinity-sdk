@@ -36,6 +36,10 @@ def _run_hook(
     # Remove AFFINITY_API_KEY from env unless explicitly set in override
     if env_override is None or "AFFINITY_API_KEY" not in env_override:
         env.pop("AFFINITY_API_KEY", None)
+    # Set AFFINITY_SESSION_CACHE to skip session cache start in tests
+    # (avoids hanging on real xaffinity session start)
+    if "AFFINITY_SESSION_CACHE" not in (env_override or {}):
+        env["AFFINITY_SESSION_CACHE"] = "/tmp/test-session-cache"
     return subprocess.run(
         [_BASH, HOOK_PATH],
         input=hook_input,
@@ -156,3 +160,64 @@ def test_hook_blocks_when_no_key(tmp_path):
         cwd=str(tmp_path),
     )
     assert result.returncode == 2
+
+
+@pytest.mark.req("CLI-PRETOOL-HOOK")
+def test_hook_denies_when_install_failed(tmp_path):
+    """Hook denies xaffinity commands when install-status marker says INSTALL_FAILED."""
+    # Create INSTALL_FAILED marker
+    marker = tmp_path / ".xaffinity-install-status"
+    marker.write_text("INSTALL_FAILED")
+
+    # Create a mock xaffinity so command -v succeeds (wrapper would be on PATH)
+    mock_bin = tmp_path / "xaffinity"
+    mock_bin.write_text("#!/bin/bash\nexit 1\n")
+    mock_bin.chmod(mock_bin.stat().st_mode | stat.S_IEXEC)
+
+    jq_dir = str(Path(shutil.which("jq") or "/usr/bin/jq").parent)
+    system_dirs = {jq_dir, "/bin", "/usr/bin"}
+    minimal_path = os.pathsep.join([str(tmp_path), *sorted(system_dirs)])
+
+    env = {"PATH": minimal_path, "HOME": str(tmp_path)}
+    result = _run_hook(
+        "xaffinity --readonly person ls --json",
+        env_override=env,
+        cwd=str(tmp_path),
+    )
+    assert result.returncode == 2
+    assert "installation failed" in result.stderr.lower()
+
+
+@pytest.mark.req("CLI-PRETOOL-HOOK")
+def test_hook_allows_when_install_succeeded(tmp_path):
+    """Hook proceeds normally when install-status marker says INSTALLED."""
+    # Create INSTALLED marker
+    marker = tmp_path / ".xaffinity-install-status"
+    marker.write_text("INSTALLED")
+
+    # Create mock xaffinity that reports key configured and handles session start
+    mock_bin = tmp_path / "xaffinity"
+    mock_bin.write_text(
+        textwrap.dedent("""\
+        #!/bin/bash
+        if [[ "$*" == *"session start"* ]]; then
+            echo "/tmp/fake-cache"
+        else
+            echo '{"data":{"configured":true}}'
+        fi
+    """)
+    )
+    mock_bin.chmod(mock_bin.stat().st_mode | stat.S_IEXEC)
+
+    jq_dir = str(Path(shutil.which("jq") or "/usr/bin/jq").parent)
+    system_dirs = {jq_dir, "/bin", "/usr/bin"}
+    minimal_path = os.pathsep.join([str(tmp_path), *sorted(system_dirs)])
+
+    # Don't set AFFINITY_SESSION_CACHE — let the hook trigger session start
+    env = {"PATH": minimal_path, "HOME": str(tmp_path), "AFFINITY_SESSION_CACHE": ""}
+    result = _run_hook(
+        "xaffinity --readonly person ls --json",
+        env_override=env,
+        cwd=str(tmp_path),
+    )
+    assert result.returncode == 0

@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-03-03
+
+### Highlights
+
+The xaffinity CLI plugin's SessionStart hook no longer runs `pip install` on every container start. Installation is deferred to first actual use via a self-installing wrapper, cutting session startup from ~30s to <1s in ephemeral environments like Cowork. Skill descriptions now display correctly in the Claude Code UI. Also documents two Affinity API limitations discovered via support: interaction entity association and enriched field constraints.
+
+### CLI Plugin 1.6.0
+
+#### Added
+- **Lazy install**: SessionStart hook now drops a lightweight self-installing wrapper instead of running `pip install` unconditionally. The wrapper defers installation to first actual xaffinity use, with mkdir-based locking for concurrent safety, a marker file for install failure detection, and a 45s wait timeout for concurrent invocations.
+- **PreToolUse hook**: Install-failure detection via `$HOME/.xaffinity-install-status` marker — blocks commands with a clear error when pip install failed, instead of cryptic failures.
+- **PreToolUse hook**: Lazy session cache start — `xaffinity session start` is triggered on first xaffinity command instead of at session start, with `CLAUDE_ENV_FILE` persistence.
+
+#### Changed
+- SessionStart timeout reduced from 60s to 10s (hook is now lightweight)
+- PreToolUse Bash timeout increased from 10s to 60s (accommodates pip install via wrapper on first use)
+- SessionStart status message updated to "Preparing Affinity CLI environment..."
+
+#### Fixed
+- Skill YAML frontmatter: replaced multi-line `>` scalar with single-line description (Claude Code couldn't parse folded scalars, showing `>` instead of the description)
+- Skill: updated session cache documentation to reflect lazy initialization
+
+#### Documentation
+- Skill: documented that interactions cannot be associated with companies/opportunities via API (UI's "Also add to" feature has no API equivalent)
+- Skill: documented that "Current Organization" is read-only via API and "Current Job Title" requires a separate `field update` after person creation
+
+### SDK Plugin 1.5.5
+
+#### Fixed
+- Skill YAML frontmatter: replaced multi-line `>` scalar with single-line description (same parsing fix as CLI plugin)
+
+### Documentation
+- Data model: documented interaction entity association limitation and enriched field constraints (Current Organization, Current Job Title)
+
 ## [1.7.1] - 2026-03-01
 
 ### Highlights

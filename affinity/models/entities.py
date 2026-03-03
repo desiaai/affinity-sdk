@@ -339,7 +339,13 @@ class Person(AffinityModel):
 
 
 class PersonCreate(AffinityModel):
-    """Data for creating a new person (V1 API)."""
+    """Data for creating a new person.
+
+    Note: "Current Organization" and "Current Job Title" cannot be set during
+    creation. "Current Organization" is a derived/system-managed field (read-only
+    via API, driven by enrichment and email domain). "Current Job Title" can be
+    updated after creation via the field-values endpoint.
+    """
 
     first_name: str
     last_name: str

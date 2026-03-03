@@ -8,8 +8,8 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/session-setup.sh",
-            "timeout": 60,
-            "statusMessage": "Setting up Affinity CLI..."
+            "timeout": 10,
+            "statusMessage": "Preparing Affinity CLI environment..."
           }
         ]
       }
@@ -31,7 +31,7 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/pre-xaffinity.sh",
-            "timeout": 10
+            "timeout": 60
           }
         ]
       }

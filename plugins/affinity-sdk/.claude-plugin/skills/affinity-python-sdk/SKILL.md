@@ -1,11 +1,6 @@
 ---
 name: affinity-python-sdk
-description: >
-  Writes Python code using the Affinity SDK for CRM data access and automation.
-  Use when user asks to write Python scripts for Affinity, mentions "affinity-sdk",
-  "affinity package", typed IDs, async client, pagination, or Affinity Python code.
-  Covers client initialization (sync/async), typed IDs, pagination (iter/pages/all),
-  custom field filtering with F expressions, field selection, error handling, and write operations.
+description: "Writes Python code using the Affinity SDK for CRM data access and automation. Use when user asks to write Python scripts for Affinity, mentions affinity-sdk, typed IDs, async client, pagination, or Affinity Python code."
 ---
 
 # Affinity Python SDK

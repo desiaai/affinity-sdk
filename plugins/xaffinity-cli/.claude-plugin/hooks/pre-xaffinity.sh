@@ -20,7 +20,46 @@ if [[ "$command" != *"xaffinity"* ]]; then
   exit 0
 fi
 
-# Config/help commands are always allowed
+# --- Check for install failure (set by bootstrap wrapper) ---
+if [ -f "$HOME/.xaffinity-install-status" ] && grep -qF "INSTALL_FAILED" "$HOME/.xaffinity-install-status" 2>/dev/null; then
+  cat >&2 << 'EOF'
+{
+  "hookSpecificOutput": {
+    "permissionDecision": "deny"
+  },
+  "systemMessage": "BLOCKED: xaffinity CLI installation failed. Ask the user to check network connectivity and Python environment, then run: pip install 'affinity-sdk[cli]'"
+}
+EOF
+  exit 2
+fi
+
+# --- Start session cache if not already running ---
+# On first use in a fresh container, this triggers the bootstrap wrapper
+# which runs pip install (~30s) before the real xaffinity starts.
+if [ -z "${AFFINITY_SESSION_CACHE:-}" ]; then
+  cache_dir=$(xaffinity session start 2>/dev/null) || true
+  if [ -n "${cache_dir:-}" ]; then
+    export AFFINITY_SESSION_CACHE="$cache_dir"
+    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      echo "export AFFINITY_SESSION_CACHE=\"$cache_dir\"" >> "$CLAUDE_ENV_FILE"
+    fi
+  fi
+
+  # Re-check install status — wrapper may have just written INSTALL_FAILED
+  if [ -f "$HOME/.xaffinity-install-status" ] && grep -qF "INSTALL_FAILED" "$HOME/.xaffinity-install-status" 2>/dev/null; then
+    cat >&2 << 'EOF'
+{
+  "hookSpecificOutput": {
+    "permissionDecision": "deny"
+  },
+  "systemMessage": "BLOCKED: xaffinity CLI installation failed. Ask the user to check network connectivity and Python environment, then run: pip install 'affinity-sdk[cli]'"
+}
+EOF
+    exit 2
+  fi
+fi
+
+# Config/help commands are always allowed (after install check, before API key)
 if [[ "$command" =~ xaffinity[[:space:]]*(--help|--version) ]] || \
    [[ "$command" =~ xaffinity[[:space:]]+config ]] || \
    [[ "$command" =~ --help ]]; then
