@@ -67,7 +67,7 @@ repos:
         pass_filenames: false
       - id: pytest-pre-push
         name: Run tests before push
-        entry: pytest tests/ -x -q --tb=short
+        entry: python -m pytest tests/ -x -q --tb=short
         language: system
         pass_filenames: false
         stages: [pre-push]
