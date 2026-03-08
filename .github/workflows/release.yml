@@ -241,7 +241,7 @@ jobs:
     environment: ${{ needs.validate.outputs.publish_target }}
     steps:
       - name: Download dist artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dist-${{ needs.validate.outputs.tag_name }}
           path: dist/
@@ -285,13 +285,13 @@ jobs:
             --output release_notes.md
 
       - name: Download dist artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dist-${{ needs.validate.outputs.tag_name }}
           path: dist/
 
       - name: Download MCPB artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: mcpb-${{ needs.validate.outputs.tag_name }}
           path: mcpb/
