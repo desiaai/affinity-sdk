@@ -52,6 +52,7 @@ from affinity.types import (
     PersonId,
     PersonType,
     TenantId,
+    UserId,
     field_id_to_v1_numeric,
 )
 
@@ -894,3 +895,46 @@ def test_service_tree_avoids_top_level_callable_entries() -> None:
     assert not hasattr(async_client, "entries")
     async_entries_service = async_client.lists.entries(ListId(1))
     assert isinstance(async_entries_service, AsyncListEntryService)
+
+
+@pytest.mark.req("SDK-USERID-PERSONID")
+class TestUserIdPersonIdRelationship:
+    """UserId is a subtype of PersonId — workspace users are internal persons."""
+
+    def test_userid_is_subclass_of_personid(self) -> None:
+        assert issubclass(UserId, PersonId)
+
+    def test_userid_instance_is_personid(self) -> None:
+        uid = UserId(123)
+        assert isinstance(uid, PersonId)
+        assert isinstance(uid, int)
+
+    def test_userid_accepted_where_personid_expected(self) -> None:
+        """UserId can be used directly in PersonId-typed contexts."""
+        uid = UserId(42)
+        d: dict[PersonId, str] = {PersonId(42): "Alice"}
+        assert d[uid] == "Alice"
+
+    def test_pydantic_roundtrip_preserves_userid(self) -> None:
+        """Pydantic deserialization produces UserId, not PersonId."""
+        from affinity.models.secondary import Note, NoteType
+
+        data = {
+            "id": 1,
+            "creatorId": 99,
+            "content": "test",
+            "type": NoteType.PLAIN_TEXT.value,
+            "createdAt": "2024-01-01T00:00:00Z",
+        }
+        note = Note.model_validate(data)
+        assert type(note.creator_id) is UserId
+        assert note.creator_id == 99
+
+    def test_userid_equality_with_personid(self) -> None:
+        assert UserId(5) == PersonId(5)
+        assert PersonId(5) == UserId(5)
+
+    def test_userid_not_assignable_from_personid(self) -> None:
+        """PersonId should NOT be assignable to UserId (not all persons are users)."""
+        pid = PersonId(10)
+        assert not isinstance(pid, UserId)

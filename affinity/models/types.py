@@ -171,8 +171,8 @@ class DropdownOptionId(IntId):
     pass
 
 
-class UserId(IntId):
-    pass
+class UserId(PersonId):
+    """Workspace member ID. A subtype of PersonId — users are internal persons in Affinity."""
 
 
 class TenantId(IntId):

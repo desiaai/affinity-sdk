@@ -117,6 +117,9 @@ person = client.persons.get(PersonId(123))
 company = client.companies.get(CompanyId(456))
 entries = client.lists.entries(ListId(789))
 
+# UserId is a subtype of PersonId — pass it anywhere PersonId is accepted:
+creator = client.persons.get(note.creator_id)  # Works directly, no cast needed
+
 # WRONG - will cause type errors:
 person = client.persons.get(123)  # Don't do this!
 ```

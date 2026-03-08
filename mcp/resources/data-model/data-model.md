@@ -199,7 +199,7 @@ interaction create --type meeting --person-id 67890 --include-me \
 interaction create --type email --person-id 12345 --person-id 67890 \
   --content "Follow-up on proposal" --date 2025-06-15T10:00:00Z --direction outgoing
 ```
-Note: Find your person ID with `whoami`. The `user.id` field from whoami IS your person ID.
+**Important:** `user.id` from `whoami` IS a person ID — workspace users are persons with type `internal`. You can use any `creator_id` (a user ID) directly with `person get` or `person ls` to resolve the user's name. No special user-listing API is needed.
 
 **Limitation:** The API only supports adding person IDs as participants. The UI's "Also add to... search for an entity" feature (which associates an interaction with a company or opportunity) has no API equivalent.
 

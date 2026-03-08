@@ -710,10 +710,8 @@ def interaction_create(
         resolved_ids = list(person_ids)
         if include_me:
             who = client.whoami()
-            # UserId == PersonId in Affinity's model (confirmed in mcp/resources/me-person-id)
-            my_person_id = int(who.user.id)
-            if my_person_id not in resolved_ids:
-                resolved_ids.insert(0, my_person_id)
+            if who.user.id not in resolved_ids:
+                resolved_ids.insert(0, who.user.id)
 
         interaction = client.interactions.create(
             InteractionCreate(

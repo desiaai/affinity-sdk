@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2026-03-08
+
+### Highlights
+
+`UserId` is now a subtype of `PersonId`, reflecting that workspace users are internal persons in Affinity's data model. Code that receives a `UserId` (e.g., `Note.creator_id`) can now pass it directly to any API accepting `PersonId` — no casting required.
+
+### Changed
+- `UserId` now extends `PersonId` instead of `IntId` — `isinstance(UserId(1), PersonId)` is now `True`. This is an intentional runtime behavior change: workspace users are internal persons in Affinity's data model. Code that used `isinstance` to distinguish users from persons should use `person.type == PersonType.INTERNAL` instead.
+- Simplified internal casts that previously converted `UserId` → `int` → `PersonId`
+
+### Documentation
+- data-model.md: clarified that user IDs and person IDs share the same ID space
+
 ## [1.7.2] - 2026-03-03
 
 ### Highlights
