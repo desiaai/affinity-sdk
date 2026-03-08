@@ -97,7 +97,7 @@ jobs:
           echo "MCPB bundle test completed"
 
       - name: Upload plugin artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: mcp-plugin
           path: |
