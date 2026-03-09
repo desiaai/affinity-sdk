@@ -355,6 +355,26 @@ Companies with `global: true` cannot be modified.
 ### Progress output goes to stderr
 When piping JSON output through another program, progress messages appear on stderr (not stdout). JSON on stdout is clean. If you need to suppress progress: use `--quiet` or `-q`.
 
+## File Commands
+
+Files can be listed, downloaded, read, and uploaded for **companies**, **persons**, and **opportunities**. These are nested subcommands under `<entity> files`:
+
+```bash
+# List files attached to an entity
+xaffinity --readonly company files ls "domain:acme.com" --max-results 20 --json
+xaffinity --readonly person files ls "email:alice@example.com" --max-results 20 --json
+xaffinity --readonly opportunity files ls 12345 --max-results 20 --json
+
+# Download files
+xaffinity --readonly company files download "domain:acme.com" --output-dir ./downloads
+
+# Read file content (with chunking support for large files)
+xaffinity --readonly company files read "domain:acme.com" --file-id 67890 --json
+
+# Upload files (write operation — requires explicit user request)
+xaffinity company files upload "domain:acme.com" ./document.pdf
+```
+
 ## Quick Reference
 
 | Task | Command |
@@ -366,8 +386,10 @@ When piping JSON output through another program, progress messages appear on std
 | Export list (bounded) | `list export "ListName" --max-results 100 --json` |
 | Export list (full CSV) | `list export "ListName" --all --csv --csv-bom > out.csv` |
 | List with server filter | `list export "ListName" --saved-view "ViewName" --max-results 50 --json` |
+| List entity files | `company files ls "domain:acme.com" --max-results 20 --json` |
+| Download entity files | `company files download "domain:acme.com" --output-dir ./downloads` |
 | Aggregate/group data | `query --dry-run --file query.json --json` (preview cost first) |
-| Get command help | `xaffinity <command> --help` |
+| Get command help | `xaffinity <command> --help` (USE THIS — don't guess flags) |
 
 **Remember:** Prefix all commands with `xaffinity --readonly` (and `--dotenv` if `check-key` says so).
 

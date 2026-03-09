@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### CLI Plugin 1.6.1
+
+#### Added
+- Skill: documented file commands (`company files`, `person files`, `opportunity files`) with `ls`, `download`, `read`, `upload` subcommands — prevents unnecessary fallback to raw v1 API calls
+- Skill: added file commands to Quick Reference table
+
 ## [1.7.3] - 2026-03-08
 
 ### Highlights
