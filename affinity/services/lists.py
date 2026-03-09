@@ -2038,13 +2038,35 @@ class AsyncListEntryService:
     async def get_field_values(
         self,
         entry_id: ListEntryId,
+        *,
+        ids: Sequence[str | AnyFieldId] | None = None,
+        types: Sequence[FieldType] | None = None,
     ) -> FieldValues:
-        """Get all field values for a list entry."""
-        data = await self._client.get(f"/lists/{self._list_id}/list-entries/{entry_id}/fields")
-        values = data.get("data", {})
-        if isinstance(values, dict):
-            return _safe_model_validate(FieldValues, values)
-        return _safe_model_validate(FieldValues, {})
+        """Get field values for a list entry.
+
+        Args:
+            entry_id: The list entry ID.
+            ids: Optional field IDs to filter (server-side).
+            types: Optional field types to filter (server-side).
+
+        Returns:
+            FieldValues container with full field objects.
+            Use .get_value(field_id) to extract unwrapped values.
+        """
+        params: dict[str, Any] = {}
+        if ids:
+            params["ids"] = [str(fid) for fid in ids]
+        if types:
+            params["types"] = [ft.value for ft in types]
+        data = await self._client.get(
+            f"/lists/{self._list_id}/list-entries/{entry_id}/fields",
+            params=params or None,
+        )
+        # V2 API returns {"data": [{field}, ...], "pagination": {...}}
+        # FieldValues._coerce_from_api converts list -> dict keyed by field ID,
+        # preserving full field objects (id, name, type, value).
+        fields_list = data.get("data", [])
+        return _safe_model_validate(FieldValues, fields_list)
 
     async def get_field_value(
         self,
