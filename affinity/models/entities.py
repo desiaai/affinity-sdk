@@ -162,6 +162,9 @@ class FieldValues(AffinityModel):
             data = {item["id"]: item for item in value if isinstance(item, dict) and "id" in item}
             return {"requested": True, "data": data}
         if isinstance(value, dict):
+            # Already in FieldValues format — pass through without re-wrapping
+            if "requested" in value and "data" in value and isinstance(value["data"], dict):
+                return value
             return {"requested": True, "data": value}
         return {"requested": True, "data": {}}
 

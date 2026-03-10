@@ -18,6 +18,7 @@ from affinity.exceptions import (
 )
 from affinity.filters import F, Filter, RawFilter
 from affinity.models.entities import (
+    Company,
     FieldValueCreate,
     FieldValues,
     ListEntryWithEntity,
@@ -126,6 +127,33 @@ def test_entities_field_values_coercion_and_null_list_normalization() -> None:
     assert opportunity.fields.requested is False
     opportunity_2 = Opportunity.model_validate({"id": 2, "name": "O2", "listId": 10, "fields": {}})
     assert opportunity_2.fields.requested is True
+
+
+def test_field_values_no_double_wrapping() -> None:
+    """FieldValues constructed with explicit kwargs should not double-nest data."""
+    # Direct construction with empty data
+    fv1 = FieldValues(requested=False, data={})
+    assert fv1.requested is False
+    assert fv1.data == {}
+
+    # Direct construction with field data
+    field_data = {"field-1": {"id": "field-1", "name": "Status", "value": {"data": "Active"}}}
+    fv2 = FieldValues(requested=True, data=field_data)
+    assert fv2.requested is True
+    assert fv2.data == field_data
+
+    # Round-trip: model_dump -> model_validate should not double-nest
+    company = Company.model_validate({"id": 1, "name": "Test"})
+    dumped_fields = company.model_dump(mode="json")["fields"]
+    round_tripped = FieldValues.model_validate(dumped_fields)
+    assert round_tripped.data == {}
+    assert round_tripped.requested is False
+
+    # Raw API dict (no "requested"/"data" keys) should still be wrapped
+    raw = {"field-1": {"id": "field-1", "name": "Status"}}
+    fv3 = FieldValues.model_validate(raw)
+    assert fv3.requested is True
+    assert fv3.data == raw
 
 
 def test_pagination_helpers_len_has_next_and_failures() -> None:
