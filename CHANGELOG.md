@@ -7,17 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### CLI Plugin 1.6.1
-
-#### Added
-- Skill: documented file commands (`company files`, `person files`, `opportunity files`) with `ls`, `download`, `read`, `upload` subcommands — prevents unnecessary fallback to raw v1 API calls
-- Skill: added file commands to Quick Reference table
-
 ## [1.8.0] - 2026-03-10
 
 ### Highlights
 
 `entry field --get` now returns resolved person and company objects (with `firstName`, `lastName`, `primaryEmailAddress`, etc.) instead of raw integer IDs. This matches the behavior of `list export` and provides a consistent, AI-agent-friendly experience. Under the hood, the command switched from V1 to V2 API.
+
+### CLI Plugin 1.6.1
+
+#### Added
+- Skill: documented file commands (`company files`, `person files`, `opportunity files`) with `ls`, `download`, `read`, `upload` subcommands — prevents unnecessary fallback to raw v1 API calls
+- Skill: added file commands to Quick Reference table
 
 ### Changed
 - **Breaking:** `entry field --get` output for person/company reference fields now returns resolved objects instead of raw integer IDs. Scripts that parse the integer ID should update to read from the resolved object.
@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `ListEntryService.get_field_values()` (sync and async) now correctly parses V2 API list response format — previously returned empty results due to dict/list type mismatch
 - Added `types` to `REPEATABLE_QUERY_PARAMS` so the V2 fields endpoint `types` filter parameter is correctly encoded
+- `FieldValues._coerce_from_api` no longer double-wraps dicts that are already in `{requested, data}` format — fixes `fields.*` returning null after round-trip serialization
+- Query executor now warns (via `ctx.warnings`) when field metadata fetch fails instead of silently returning null for all `fields.*` values
+- Query executor now warns when field name resolution fails in `where` clauses instead of silently skipping resolution
+- Multi-parent fetch path now normalizes list entry fields — `fields.*` in `select` works correctly when query spans multiple parent lists
 
 ## [1.7.3] - 2026-03-08
 
