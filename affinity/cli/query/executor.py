@@ -1168,7 +1168,7 @@ class QueryExecutor:
         # Resolve field names to IDs for listEntries queries (after we know parent IDs)
         # This is only used for the API call, NOT for client-side filtering
         if where_dict is not None and parent_ids:
-            where_dict = await self._resolve_field_names_to_ids(where_dict, parent_ids)
+            where_dict = await self._resolve_field_names_to_ids(where_dict, parent_ids, ctx)
         if not parent_ids:
             # Should never happen - parser validates this
             raise QueryExecutionError(
@@ -1221,10 +1221,14 @@ class QueryExecutor:
 
                 async for page in nested_service.all().pages(**pages_kwargs):
                     for record in page.data:
-                        results.append(record.model_dump(mode="json", by_alias=True))
+                        record_dict = record.model_dump(mode="json", by_alias=True)
+                        record_dict = _normalize_list_entry_fields(record_dict)
+                        results.append(record_dict)
             else:
                 async for record in nested_service.all():
-                    results.append(record.model_dump(mode="json", by_alias=True))
+                    record_dict = record.model_dump(mode="json", by_alias=True)
+                    record_dict = _normalize_list_entry_fields(record_dict)
+                    results.append(record_dict)
 
             return results
 
@@ -1604,8 +1608,11 @@ class QueryExecutor:
                     "by_name": field_map,
                     "all_ids": all_field_ids,
                 }
-            except Exception:
-                # If we can't fetch fields, continue without custom field values
+            except Exception as exc:
+                logger.warning("Failed to fetch field metadata for list %s: %s", list_id, exc)
+                ctx.warnings.append(
+                    f"Could not fetch field metadata (fields.* values will be null): {exc}"
+                )
                 return None
 
         cache = self._field_name_cache[cache_key]
@@ -1699,7 +1706,10 @@ class QueryExecutor:
         return result
 
     async def _resolve_field_names_to_ids(
-        self, where: dict[str, Any], list_ids: list[int]
+        self,
+        where: dict[str, Any],
+        list_ids: list[int],
+        ctx: ExecutionContext,
     ) -> dict[str, Any]:
         """Resolve field name references to field IDs in fields.* paths.
 
@@ -1734,9 +1744,11 @@ class QueryExecutor:
                         if field.name:
                             # Map lowercase name to field ID
                             self._field_name_to_id_cache[field.name.lower()] = str(field.id)
-                except Exception:
-                    # If we can't fetch fields, continue without resolution
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to fetch field metadata for list %s: %s", list_id, exc)
+                    ctx.warnings.append(
+                        f"Could not fetch field metadata for where clause resolution: {exc}"
+                    )
 
         # Check if this is a fields.* condition
         path = where.get("path", "")
@@ -1756,11 +1768,11 @@ class QueryExecutor:
         result = dict(where)
         if where.get("and"):
             result["and"] = [
-                await self._resolve_field_names_to_ids(c, list_ids) for c in where["and"]
+                await self._resolve_field_names_to_ids(c, list_ids, ctx) for c in where["and"]
             ]
         if where.get("or"):
             result["or"] = [
-                await self._resolve_field_names_to_ids(c, list_ids) for c in where["or"]
+                await self._resolve_field_names_to_ids(c, list_ids, ctx) for c in where["or"]
             ]
 
         return result

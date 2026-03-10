@@ -1666,6 +1666,11 @@ class TestFieldNameResolution:
     """
 
     @pytest.fixture
+    def ctx(self) -> ExecutionContext:
+        """Create execution context for field name resolution tests."""
+        return ExecutionContext(query=Query(from_="listEntries"))
+
+    @pytest.fixture
     def executor(self) -> QueryExecutor:
         """Create QueryExecutor with mock client returning known fields."""
         # Create mock field objects
@@ -1693,57 +1698,71 @@ class TestFieldNameResolution:
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_single_field_name_resolved(self, executor: QueryExecutor) -> None:
+    async def test_single_field_name_resolved(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Single field name is resolved to field ID."""
         where = {"path": "fields.Status", "op": "eq", "value": "Active"}
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         assert resolved == {"path": "fields.field-260415", "op": "eq", "value": "Active"}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_field_name_case_insensitive(self, executor: QueryExecutor) -> None:
+    async def test_field_name_case_insensitive(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Field name resolution is case-insensitive."""
         where = {"path": "fields.status", "op": "eq", "value": "Active"}
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         assert resolved == {"path": "fields.field-260415", "op": "eq", "value": "Active"}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_field_with_space_resolved(self, executor: QueryExecutor) -> None:
+    async def test_field_with_space_resolved(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Field names with spaces are resolved."""
         where = {"path": "fields.Deal Value", "op": "gt", "value": 10000}
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         assert resolved == {"path": "fields.field-260416", "op": "gt", "value": 10000}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_numeric_field_id_passthrough(self, executor: QueryExecutor) -> None:
+    async def test_numeric_field_id_passthrough(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Numeric field IDs pass through unchanged."""
         where = {"path": "fields.12345", "op": "eq", "value": "Active"}
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         # Should not change since it's already a numeric ID
         assert resolved == {"path": "fields.12345", "op": "eq", "value": "Active"}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_field_id_prefix_passthrough(self, executor: QueryExecutor) -> None:
+    async def test_field_id_prefix_passthrough(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """field- prefixed IDs pass through unchanged."""
         where = {"path": "fields.field-260415", "op": "eq", "value": "Active"}
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         assert resolved == {"path": "fields.field-260415", "op": "eq", "value": "Active"}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_unknown_field_name_passthrough(self, executor: QueryExecutor) -> None:
+    async def test_unknown_field_name_passthrough(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Unknown field names pass through unchanged (no error)."""
         where = {"path": "fields.NonexistentField", "op": "eq", "value": "X"}
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         # Should pass through since field not found
         assert resolved == {"path": "fields.NonexistentField", "op": "eq", "value": "X"}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_nested_and_conditions_resolved(self, executor: QueryExecutor) -> None:
+    async def test_nested_and_conditions_resolved(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Field names in nested AND conditions are resolved."""
         where = {
             "and": [
@@ -1751,13 +1770,15 @@ class TestFieldNameResolution:
                 {"path": "fields.Priority", "op": "eq", "value": "High"},
             ]
         }
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         assert resolved["and"][0] == {"path": "fields.field-260415", "op": "eq", "value": "Active"}
         assert resolved["and"][1] == {"path": "fields.field-260417", "op": "eq", "value": "High"}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_nested_or_conditions_resolved(self, executor: QueryExecutor) -> None:
+    async def test_nested_or_conditions_resolved(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Field names in nested OR conditions are resolved."""
         where = {
             "or": [
@@ -1765,42 +1786,67 @@ class TestFieldNameResolution:
                 {"path": "fields.Status", "op": "eq", "value": "Pending"},
             ]
         }
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         assert resolved["or"][0] == {"path": "fields.field-260415", "op": "eq", "value": "Active"}
         assert resolved["or"][1] == {"path": "fields.field-260415", "op": "eq", "value": "Pending"}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_non_field_paths_passthrough(self, executor: QueryExecutor) -> None:
+    async def test_non_field_paths_passthrough(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Non-fields.* paths pass through unchanged."""
         where = {"path": "listId", "op": "eq", "value": 12345}
-        resolved = await executor._resolve_field_names_to_ids(where, [12345])
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
         assert resolved == {"path": "listId", "op": "eq", "value": 12345}
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_empty_list_ids_passthrough(self, executor: QueryExecutor) -> None:
+    async def test_empty_list_ids_passthrough(
+        self, executor: QueryExecutor, ctx: ExecutionContext
+    ) -> None:
         """Empty list IDs returns where unchanged."""
         where = {"path": "fields.Status", "op": "eq", "value": "Active"}
-        resolved = await executor._resolve_field_names_to_ids(where, [])
+        resolved = await executor._resolve_field_names_to_ids(where, [], ctx)
         assert resolved == where
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-010")
-    async def test_cache_reused(self, executor: QueryExecutor) -> None:
+    async def test_cache_reused(self, executor: QueryExecutor, ctx: ExecutionContext) -> None:
         """Field name cache is reused across multiple resolutions."""
         where1 = {"path": "fields.Status", "op": "eq", "value": "Active"}
         where2 = {"path": "fields.Priority", "op": "eq", "value": "High"}
 
         # First resolution populates cache
-        await executor._resolve_field_names_to_ids(where1, [12345])
+        await executor._resolve_field_names_to_ids(where1, [12345], ctx)
 
         # Second resolution should use cache
-        await executor._resolve_field_names_to_ids(where2, [12345])
+        await executor._resolve_field_names_to_ids(where2, [12345], ctx)
 
         # Cache should exist
         assert hasattr(executor, "_field_name_to_id_cache")
         assert len(executor._field_name_to_id_cache) == 3  # All 3 fields cached
+
+    @pytest.mark.asyncio
+    @pytest.mark.req("QUERY-EXECUTOR-010")
+    async def test_warns_on_get_fields_failure(self) -> None:
+        """Adds warning and returns where unchanged when get_fields fails."""
+        mock_client = MagicMock()
+        mock_client.lists.get_fields = AsyncMock(side_effect=Exception("Network timeout"))
+        mock_client.whoami = AsyncMock(return_value={"id": 1})
+        executor = QueryExecutor(mock_client, max_records=100)
+
+        query = Query(from_="listEntries", select=["fields.Status"])
+        ctx = ExecutionContext(query=query)
+
+        where = {"path": "fields.Status", "op": "eq", "value": "Active"}
+        resolved = await executor._resolve_field_names_to_ids(where, [12345], ctx)
+
+        # Where clause returned unchanged (field name not resolved to ID)
+        assert resolved == where
+        # Warning surfaced to user
+        assert len(ctx.warnings) == 1
+        assert "Network timeout" in ctx.warnings[0]
 
 
 # =============================================================================
@@ -2041,7 +2087,7 @@ class TestResolveFieldIdsForListEntries:
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-011")
     async def test_handles_get_fields_error(self, mock_client: AsyncMock) -> None:
-        """Returns None if get_fields fails."""
+        """Returns None and adds warning if get_fields fails."""
         mock_client.lists.get_fields = AsyncMock(side_effect=Exception("API Error"))
         executor = QueryExecutor(mock_client, max_records=100)
 
@@ -2051,6 +2097,9 @@ class TestResolveFieldIdsForListEntries:
         field_ids = await executor._resolve_field_ids_for_list_entries(ctx, 12345)
 
         assert field_ids is None
+        assert len(ctx.warnings) == 1
+        assert "API Error" in ctx.warnings[0]
+        assert "field" in ctx.warnings[0].lower()
 
     @pytest.mark.asyncio
     @pytest.mark.req("QUERY-EXECUTOR-013")
@@ -4452,3 +4501,45 @@ class TestBatchFetchByIds:
         assert result[0]["name"] == "Company 100"
         assert result[1] == {"id": 200}  # Fallback on error
         assert result[2]["name"] == "Company 300"
+
+
+# =============================================================================
+# Multi-Parent Normalization Tests
+# =============================================================================
+
+
+class TestMultiParentNormalization:
+    """Tests that multi-parent fetch path normalizes list entry fields."""
+
+    def test_multi_parent_records_are_normalized(self) -> None:
+        """Records from multi-parent fetch have fields normalized like single-parent."""
+        # Simulate a record as returned by model_dump (before normalization)
+        raw_record = {
+            "id": 1,
+            "listId": 100,
+            "type": "company",
+            "createdAt": "2025-01-01T00:00:00Z",
+            "entity": {
+                "id": 500,
+                "name": "Acme Corp",
+                "fields": {
+                    "requested": True,
+                    "data": {
+                        "field-100": {
+                            "id": "field-100",
+                            "name": "Status",
+                            "value": {"data": {"text": "Active"}},
+                        },
+                    },
+                },
+            },
+            "fields": {"requested": False, "data": {}},
+        }
+
+        normalized = _normalize_list_entry_fields(raw_record)
+
+        # Fields should be extracted to top-level dict keyed by name
+        assert normalized["fields"] == {"Status": "Active"}
+        assert normalized["entityName"] == "Acme Corp"
+        assert normalized["entityId"] == 500
+        assert normalized["listEntryId"] == 1
