@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skill: documented file commands (`company files`, `person files`, `opportunity files`) with `ls`, `download`, `read`, `upload` subcommands — prevents unnecessary fallback to raw v1 API calls
 - Skill: added file commands to Quick Reference table
 
+## [1.8.0] - 2026-03-10
+
+### Highlights
+
+`entry field --get` now returns resolved person and company objects (with `firstName`, `lastName`, `primaryEmailAddress`, etc.) instead of raw integer IDs. This matches the behavior of `list export` and provides a consistent, AI-agent-friendly experience. Under the hood, the command switched from V1 to V2 API.
+
+### Changed
+- **Breaking:** `entry field --get` output for person/company reference fields now returns resolved objects instead of raw integer IDs. Scripts that parse the integer ID should update to read from the resolved object.
+- `entry field --get` now uses the V2 API (`/v2/lists/{listId}/list-entries/{entryId}/fields`) instead of V1 `field_values.list()`
+
+### Fixed
+- `ListEntryService.get_field_values()` (sync and async) now correctly parses V2 API list response format — previously returned empty results due to dict/list type mismatch
+- Added `types` to `REPEATABLE_QUERY_PARAMS` so the V2 fields endpoint `types` filter parameter is correctly encoded
+
 ## [1.7.3] - 2026-03-08
 
 ### Highlights

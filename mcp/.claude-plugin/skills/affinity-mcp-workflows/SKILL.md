@@ -191,6 +191,7 @@ Use `discover-commands` to find commands, then `execute-read-command` or `execut
 |---------|----------|
 | `interaction create --type call --person-id <id>` | Log a call/meeting/email |
 | `note create --person-id <id> --content "..."` | Add a note |
+| `entry field "<list>" <entryId> --get <field>` | Read field values (returns resolved person/company objects) |
 | `entry field "<list>" <entryId> --set <field> <value>` | Update a field value |
 | `person create --first-name "..." --last-name "..."` | Create a person |
 

@@ -242,8 +242,9 @@
       "relatedCommands": ["entry get", "entry delete"]
     },
     "entry field": {
-      "whenToUse": "Update field values on a list entry.",
+      "whenToUse": "Read or update field values on a list entry. Use --get to read specific fields (returns resolved person/company objects, matching list export format). Use --set to update.",
       "examples": [
+        "entry field \"Pipeline\" 12345 --get Owner --get Status",
         "entry field \"Pipeline\" 12345 --set Status \"Active\"",
         "entry field \"Pipeline\" 12345 --set \"Deal Size\" 50000"
       ],

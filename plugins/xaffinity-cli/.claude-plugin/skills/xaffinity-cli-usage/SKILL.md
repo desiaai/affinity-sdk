@@ -157,6 +157,22 @@ xaffinity --readonly person ls --all --csv --csv-bom > contacts.csv
 xaffinity --readonly list export "Pipeline" --all --csv --csv-bom > output.csv
 ```
 
+## List Entry Fields
+
+Read or update field values on a list entry:
+
+```bash
+# Read specific fields (returns resolved person/company objects, matching list export format)
+xaffinity --readonly list entry field "Pipeline" 12345 --get Owner --get Status --json
+
+# Set a field value (requires write permission)
+xaffinity list entry field "Pipeline" 12345 --set Status "Active"
+
+# --get and --set are mutually exclusive
+```
+
+`--get` returns resolved objects for person/company reference fields (with `firstName`, `lastName`, `primaryEmailAddress`) and full dropdown option data (with `text`, `color`).
+
 ## Interactions
 
 Interactions require `--type` and exactly one entity ID (`--person-id`, `--company-id`, or `--opportunity-id`).

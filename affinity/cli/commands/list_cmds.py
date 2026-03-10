@@ -3253,23 +3253,28 @@ def list_entry_field(
             if field_spec not in resolved_fields:
                 resolved_fields[field_spec] = resolve_field(field_spec)
 
-        # Handle --get: read field values
+        # Handle --get: read field values via V2 API (returns resolved person/company objects)
         if has_get:
-            existing_values = client.field_values.list(list_entry_id=ListEntryId(entry_id))
-            field_results: dict[str, Any] = {}
+            entries = client.lists.entries(resolved_list.list.id)
+            target_field_ids = [resolved_fields[fs] for fs in get_fields]
+            v2_fields = entries.get_field_values(
+                ListEntryId(entry_id),
+                ids=target_field_ids,
+            )
 
+            field_results: dict[str, Any] = {}
             for field_spec in get_fields:
-                target_field_id = resolved_fields[field_spec]  # Already resolved upfront
-                field_values = find_field_values_for_field(
-                    field_values=[serialize_model_for_cli(v) for v in existing_values],
-                    field_id=target_field_id,
-                )
+                target_field_id = resolved_fields[field_spec]
                 resolved_name = resolver.get_field_name(target_field_id) or field_spec
-                if field_values:
-                    if len(field_values) == 1:
-                        field_results[resolved_name] = field_values[0].get("value")
+                # Extract raw .value.data — same approach as _extract_field_values()
+                # and list export. Do NOT use get_value() which returns typed objects.
+                field_obj = v2_fields.data.get(target_field_id)
+                if field_obj is not None:
+                    value_wrapper = field_obj.get("value")
+                    if isinstance(value_wrapper, dict) and "data" in value_wrapper:
+                        field_results[resolved_name] = value_wrapper["data"]
                     else:
-                        field_results[resolved_name] = [fv.get("value") for fv in field_values]
+                        field_results[resolved_name] = value_wrapper
                 else:
                     field_results[resolved_name] = None
 

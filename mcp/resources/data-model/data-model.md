@@ -356,6 +356,14 @@ Task statuses: `pending`, `in_progress`, `success`, `failed`
 
 Use `execute-write-command` for mutations (create, update, delete). Common patterns:
 
+### Reading List Entry Fields
+To read specific field values from a list entry:
+```bash
+entry field "Dealflow" 12345 --get "Owner" --get "Status"
+```
+
+Returns resolved objects for person/company reference fields (with `firstName`, `lastName`, `primaryEmailAddress`, etc.) and full dropdown option data (with `text`, `color`, `rank`). Output format matches `list export`.
+
 ### Updating List Entry Fields
 To set a field value on a list entry:
 ```bash

@@ -11,6 +11,7 @@ Tests cover:
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -95,6 +96,24 @@ def setup_list_mocks(respx_mock: respx.MockRouter) -> None:
     # Field metadata (V1) - list_fields_for_list fetches from V1 for dropdown_options
     respx_mock.get("https://api.affinity.co/fields").mock(
         return_value=Response(200, json={"data": FIELDS_RESPONSE_V1})
+    )
+
+
+def mock_v2_entry_fields(
+    respx_mock: respx.MockRouter,
+    fields: list[dict[str, Any]],
+) -> None:
+    """Mock the V2 GET /lists/{listId}/list-entries/{entryId}/fields endpoint."""
+    respx_mock.get(
+        f"https://api.affinity.co/v2/lists/{LIST_ID}/list-entries/{ENTRY_ID}/fields"
+    ).mock(
+        return_value=Response(
+            200,
+            json={
+                "data": fields,
+                "pagination": {"prevUrl": None, "nextUrl": None},
+            },
+        )
     )
 
 
@@ -303,14 +322,19 @@ def test_entry_field_set_json(respx_mock: respx.MockRouter) -> None:
 
 
 def test_entry_field_get(respx_mock: respx.MockRouter) -> None:
-    """--get retrieves field values."""
+    """--get retrieves field values via V2 API."""
     setup_list_mocks(respx_mock)
-
-    respx_mock.get("https://api.affinity.co/field-values").mock(
-        return_value=Response(
-            200,
-            json=[{"id": 500, "fieldId": "field-100", "entityId": 224925, "value": "Active"}],
-        )
+    mock_v2_entry_fields(
+        respx_mock,
+        [
+            {
+                "id": "field-100",
+                "name": "Status",
+                "type": "list",
+                "enrichmentSource": None,
+                "value": {"data": "Active", "type": "text"},
+            },
+        ],
     )
 
     runner = CliRunner()
@@ -328,12 +352,17 @@ def test_entry_field_get(respx_mock: respx.MockRouter) -> None:
 def test_entry_field_get_output_format(respx_mock: respx.MockRouter) -> None:
     """--get returns {fields: {name: value}} format."""
     setup_list_mocks(respx_mock)
-
-    respx_mock.get("https://api.affinity.co/field-values").mock(
-        return_value=Response(
-            200,
-            json=[{"id": 500, "fieldId": "field-100", "entityId": 224925, "value": "Active"}],
-        )
+    mock_v2_entry_fields(
+        respx_mock,
+        [
+            {
+                "id": "field-100",
+                "name": "Status",
+                "type": "list",
+                "enrichmentSource": None,
+                "value": {"data": "Active", "type": "text"},
+            },
+        ],
     )
 
     runner = CliRunner()
@@ -352,12 +381,17 @@ def test_entry_field_get_output_format(respx_mock: respx.MockRouter) -> None:
 def test_entry_field_get_resolves_field_names(respx_mock: respx.MockRouter) -> None:
     """--get with field ID outputs resolved field name as key."""
     setup_list_mocks(respx_mock)
-
-    respx_mock.get("https://api.affinity.co/field-values").mock(
-        return_value=Response(
-            200,
-            json=[{"id": 500, "fieldId": "field-100", "entityId": 224925, "value": "Active"}],
-        )
+    mock_v2_entry_fields(
+        respx_mock,
+        [
+            {
+                "id": "field-100",
+                "name": "Status",
+                "type": "list",
+                "enrichmentSource": None,
+                "value": {"data": "Active", "type": "text"},
+            },
+        ],
     )
 
     runner = CliRunner()
@@ -369,8 +403,229 @@ def test_entry_field_get_resolves_field_names(respx_mock: respx.MockRouter) -> N
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output.strip())
-    # Field name should be resolved
     assert "Status" in payload["data"]["fields"]
+
+
+def test_entry_field_get_resolves_person_fields(respx_mock: respx.MockRouter) -> None:
+    """--get returns resolved person object, not raw ID."""
+    setup_list_mocks(respx_mock)
+
+    # Add a person-type field to the fields metadata (V2 + V1)
+    respx_mock.get(f"https://api.affinity.co/v2/lists/{LIST_ID}/fields").mock(
+        return_value=Response(
+            200,
+            json={
+                "data": [
+                    *FIELDS_RESPONSE,
+                    {
+                        "id": "field-200",
+                        "name": "Owner",
+                        "valueType": "person",
+                        "allowsMultiple": False,
+                    },
+                ],
+                "pagination": {},
+            },
+        )
+    )
+    respx_mock.get("https://api.affinity.co/fields").mock(
+        return_value=Response(
+            200,
+            json={
+                "data": [
+                    *FIELDS_RESPONSE_V1,
+                    {"id": "field-200", "name": "Owner", "value_type": 6, "allows_multiple": False},
+                ]
+            },
+        )
+    )
+
+    mock_v2_entry_fields(
+        respx_mock,
+        [
+            {
+                "id": "field-200",
+                "name": "Owner",
+                "type": "list",
+                "enrichmentSource": None,
+                "value": {
+                    "data": {
+                        "id": 26323038,
+                        "firstName": "Avichay",
+                        "lastName": "Nissenbaum",
+                        "primaryEmailAddress": "avichay@lool.vc",
+                        "type": "internal",
+                    },
+                    "type": "person",
+                },
+            },
+        ],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--json", "entry", "field", "Portfolio", str(ENTRY_ID), "--get", "Owner"],
+        env={"AFFINITY_API_KEY": "test-key"},
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output.strip())
+    owner = payload["data"]["fields"]["Owner"]
+    assert owner["id"] == 26323038
+    assert owner["firstName"] == "Avichay"
+    assert owner["lastName"] == "Nissenbaum"
+
+
+def test_entry_field_get_resolves_dropdown_fields(respx_mock: respx.MockRouter) -> None:
+    """--get returns dropdown data matching list export format."""
+    setup_list_mocks(respx_mock)
+
+    respx_mock.get(f"https://api.affinity.co/v2/lists/{LIST_ID}/fields").mock(
+        return_value=Response(
+            200,
+            json={
+                "data": [
+                    *FIELDS_RESPONSE,
+                    {
+                        "id": "field-300",
+                        "name": "Stage",
+                        "valueType": "ranked-dropdown",
+                        "allowsMultiple": False,
+                        "dropdownOptions": [
+                            {"id": 7, "text": "Passed", "rank": 8, "color": "green"},
+                        ],
+                    },
+                ],
+                "pagination": {},
+            },
+        )
+    )
+    respx_mock.get("https://api.affinity.co/fields").mock(
+        return_value=Response(
+            200,
+            json={
+                "data": [
+                    *FIELDS_RESPONSE_V1,
+                    {"id": "field-300", "name": "Stage", "value_type": 6, "allows_multiple": False},
+                ]
+            },
+        )
+    )
+
+    mock_v2_entry_fields(
+        respx_mock,
+        [
+            {
+                "id": "field-300",
+                "name": "Stage",
+                "type": "list",
+                "enrichmentSource": None,
+                "value": {
+                    "data": {"dropdownOptionId": 7, "text": "Passed", "rank": 8, "color": "green"},
+                    "type": "ranked-dropdown",
+                },
+            },
+        ],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--json", "entry", "field", "Portfolio", str(ENTRY_ID), "--get", "Stage"],
+        env={"AFFINITY_API_KEY": "test-key"},
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output.strip())
+    stage = payload["data"]["fields"]["Stage"]
+    assert stage["dropdownOptionId"] == 7
+    assert stage["text"] == "Passed"
+
+
+def test_entry_field_get_null_for_missing_field(respx_mock: respx.MockRouter) -> None:
+    """--get returns None for fields not set on the entry."""
+    setup_list_mocks(respx_mock)
+    mock_v2_entry_fields(respx_mock, [])
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--json", "entry", "field", "Portfolio", str(ENTRY_ID), "--get", "Status"],
+        env={"AFFINITY_API_KEY": "test-key"},
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output.strip())
+    assert payload["data"]["fields"]["Status"] is None
+
+
+def test_entry_field_get_multi_value_field(respx_mock: respx.MockRouter) -> None:
+    """--get returns list for multi-value fields."""
+    setup_list_mocks(respx_mock)
+
+    respx_mock.get(f"https://api.affinity.co/v2/lists/{LIST_ID}/fields").mock(
+        return_value=Response(
+            200,
+            json={
+                "data": [
+                    *FIELDS_RESPONSE,
+                    {
+                        "id": "field-400",
+                        "name": "Team",
+                        "valueType": "person",
+                        "allowsMultiple": True,
+                    },
+                ],
+                "pagination": {},
+            },
+        )
+    )
+    respx_mock.get("https://api.affinity.co/fields").mock(
+        return_value=Response(
+            200,
+            json={
+                "data": [
+                    *FIELDS_RESPONSE_V1,
+                    {"id": "field-400", "name": "Team", "value_type": 6, "allows_multiple": True},
+                ]
+            },
+        )
+    )
+
+    mock_v2_entry_fields(
+        respx_mock,
+        [
+            {
+                "id": "field-400",
+                "name": "Team",
+                "type": "list",
+                "enrichmentSource": None,
+                "value": {
+                    "data": [
+                        {"id": 1, "firstName": "Alice", "lastName": "Smith", "type": "internal"},
+                        {"id": 2, "firstName": "Bob", "lastName": "Jones", "type": "internal"},
+                    ],
+                    "type": "person-multi",
+                },
+            },
+        ],
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--json", "entry", "field", "Portfolio", str(ENTRY_ID), "--get", "Team"],
+        env={"AFFINITY_API_KEY": "test-key"},
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output.strip())
+    team = payload["data"]["fields"]["Team"]
+    assert isinstance(team, list)
+    assert len(team) == 2
+    assert team[0]["firstName"] == "Alice"
+    assert team[1]["firstName"] == "Bob"
 
 
 # ============================================================================
@@ -1297,11 +1552,17 @@ def test_entry_field_field_name_like_id(respx_mock: respx.MockRouter) -> None:
     assert "Field 'field-123' not found on list" in result.output
 
     # To access a field named "field-123", user must use the actual ID (field-999)
-    respx_mock.get("https://api.affinity.co/field-values").mock(
-        return_value=Response(
-            200,
-            json=[{"id": 500, "fieldId": "field-999", "entityId": 224925, "value": "test"}],
-        )
+    mock_v2_entry_fields(
+        respx_mock,
+        [
+            {
+                "id": "field-999",
+                "name": "field-123",
+                "type": "list",
+                "enrichmentSource": None,
+                "value": {"data": "test", "type": "text"},
+            },
+        ],
     )
 
     result2 = runner.invoke(

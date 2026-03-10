@@ -2,11 +2,11 @@
   "_generated": {
     "warning": "DO NOT EDIT - This file is auto-generated",
     "generator": "tools/generate_mcp_command_registry.py",
-    "cliVersion": "1.7.3",
+    "cliVersion": "1.8.0",
     "sourceConfig": "mcp/.registry/mcp-commands.json"
   },
   "version": 1,
-  "cliVersion": "1.7.3",
+  "cliVersion": "1.8.0",
   "commands": [
     {
       "name": "company create",
@@ -775,10 +775,11 @@
         }
       ],
       "examples": [
+        "entry field \"Pipeline\" 12345 --get Owner --get Status",
         "entry field \"Pipeline\" 12345 --set Status \"Active\"",
         "entry field \"Pipeline\" 12345 --set \"Deal Size\" 50000"
       ],
-      "whenToUse": "Update field values on a list entry.",
+      "whenToUse": "Read or update field values on a list entry. Use --get to read specific fields (returns resolved person/company objects, matching list export format). Use --set to update.",
       "relatedCommands": [
         "entry get",
         "field ls"
