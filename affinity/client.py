@@ -23,7 +23,7 @@ from .clients.http import (
 from .hooks import AnyEventHook, ErrorHook, RequestHook, ResponseHook
 from .models.secondary import WhoAmI
 from .models.types import V1_BASE_URL, V2_BASE_URL
-from .policies import Policies
+from .policies import Policies, WritePolicy
 from .services.companies import AsyncCompanyService, CompanyService
 from .services.lists import AsyncListService, ListService
 from .services.opportunities import AsyncOpportunityService, OpportunityService
@@ -295,6 +295,75 @@ class Affinity:
             policies=policies,
             on_event=on_event,
             hook_error_policy=hook_error_policy,
+            **kwargs,
+        )
+
+    @classmethod
+    def read_only(
+        cls,
+        api_key: str,
+        **kwargs: Any,
+    ) -> Affinity:
+        """
+        Create a read-only client that blocks all write operations.
+
+        This is a convenience factory equivalent to:
+            Affinity(api_key, policies=Policies(write=WritePolicy.DENY))
+
+        For env-based key resolution, use read_only_from_env() instead.
+
+        Args:
+            api_key: Affinity API key (required).
+            **kwargs: Additional arguments passed to Affinity constructor
+                (e.g., v1_base_url, v2_base_url, timeout).
+
+        Returns:
+            Affinity client configured to reject write operations.
+
+        Example:
+            >>> with Affinity.read_only("your-key") as client:
+            ...     companies = client.companies.list()
+            ...     client.companies.create(...)  # Raises WriteNotAllowedError
+        """
+        if "policies" in kwargs:
+            raise ValueError(
+                "Cannot specify 'policies' with read_only(); "
+                "use Affinity() constructor directly for custom policies"
+            )
+        return cls(
+            api_key=api_key,
+            policies=Policies(write=WritePolicy.DENY),
+            **kwargs,
+        )
+
+    @classmethod
+    def read_only_from_env(
+        cls,
+        *,
+        env_var: str = _DEFAULT_API_KEY_ENV_VAR,
+        **kwargs: Any,
+    ) -> Affinity:
+        """
+        Create a read-only client using API key from environment.
+
+        Equivalent to Affinity.from_env() with WritePolicy.DENY.
+
+        Args:
+            env_var: Environment variable name (default: AFFINITY_API_KEY).
+            **kwargs: Additional arguments passed to from_env().
+
+        Example:
+            >>> with Affinity.read_only_from_env() as client:
+            ...     companies = client.companies.list()
+        """
+        if "policies" in kwargs:
+            raise ValueError(
+                "Cannot specify 'policies' with read_only_from_env(); "
+                "use Affinity.from_env() directly for custom policies"
+            )
+        return cls.from_env(
+            env_var=env_var,
+            policies=Policies(write=WritePolicy.DENY),
             **kwargs,
         )
 
@@ -610,6 +679,51 @@ class AsyncAffinity:
             policies=policies,
             on_event=on_event,
             hook_error_policy=hook_error_policy,
+            **kwargs,
+        )
+
+    @classmethod
+    def read_only(
+        cls,
+        api_key: str,
+        **kwargs: Any,
+    ) -> AsyncAffinity:
+        """
+        Create a read-only async client that blocks all write operations.
+
+        See Affinity.read_only() for details.
+        """
+        if "policies" in kwargs:
+            raise ValueError(
+                "Cannot specify 'policies' with read_only(); "
+                "use AsyncAffinity() constructor directly for custom policies"
+            )
+        return cls(
+            api_key=api_key,
+            policies=Policies(write=WritePolicy.DENY),
+            **kwargs,
+        )
+
+    @classmethod
+    def read_only_from_env(
+        cls,
+        *,
+        env_var: str = _DEFAULT_API_KEY_ENV_VAR,
+        **kwargs: Any,
+    ) -> AsyncAffinity:
+        """
+        Create a read-only async client using API key from environment.
+
+        See Affinity.read_only_from_env() for details.
+        """
+        if "policies" in kwargs:
+            raise ValueError(
+                "Cannot specify 'policies' with read_only_from_env(); "
+                "use AsyncAffinity.from_env() directly for custom policies"
+            )
+        return cls.from_env(
+            env_var=env_var,
+            policies=Policies(write=WritePolicy.DENY),
             **kwargs,
         )
 

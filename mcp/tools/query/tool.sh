@@ -24,6 +24,22 @@ max_output_bytes="$(mcp_args_int '.maxOutputBytes' --default 50000)"
 format="$(mcp_args_get '.format // "toon"')"
 cursor="$(mcp_args_get '.cursor // ""')"
 
+# Check for common mistake: timeout inside query object instead of top-level
+# If user put timeout inside query and not at top level, use it with a warning
+if [[ $user_timeout_secs -eq 0 ]]; then
+    nested_timeout=$(jq_tool -r '.timeout // 0' "$query_file" 2>/dev/null || echo "0")
+    if [[ "$nested_timeout" =~ ^[0-9]+$ ]] && [[ $nested_timeout -gt 0 ]]; then
+        # Convert milliseconds to seconds if value looks like ms (> 1000)
+        if [[ $nested_timeout -gt 1000 ]]; then
+            user_timeout_secs=$((nested_timeout / 1000))
+            mcp_log_warn "query" "timeout was inside query object (should be top-level). Interpreted ${nested_timeout}ms as ${user_timeout_secs}s."
+        else
+            user_timeout_secs=$nested_timeout
+            mcp_log_warn "query" "timeout was inside query object - move it to top level (peer to 'query', not nested inside it)."
+        fi
+    fi
+fi
+
 # Validate format parameter
 case "$format" in
   toon|markdown|json|jsonl|csv) ;;
@@ -82,6 +98,8 @@ elif [[ "$dry_run" == "true" ]]; then
     timeout_secs=30
 else
     # Calculate dynamic timeout based on estimated API calls
+    # Emit progress to extend MCP timeout during planning phase
+    mcp_progress 0 "Planning query..."
     if dynamic_timeout=$(calc_dynamic_timeout 2>/dev/null); then
         timeout_secs=$dynamic_timeout
     else

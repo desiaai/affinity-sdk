@@ -428,8 +428,22 @@ def test_v1_only_services_cover_optional_params_and_fallback_shapes(tmp_path: Pa
             .id
             == 1
         )
-        assert interactions.list(type=InteractionType.CALL).data[0].id == 2
-        assert interactions.list(type=InteractionType(999)).data == []
+        _st = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        _et = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        assert (
+            interactions.list(
+                type=InteractionType.CALL, person_id=PersonId(1), start_time=_st, end_time=_et
+            )
+            .data[0]
+            .id
+            == 2
+        )
+        assert (
+            interactions.list(
+                type=InteractionType(999), person_id=PersonId(1), start_time=_st, end_time=_et
+            ).data
+            == []
+        )
         # type is required - verify ValueError is raised without it
         with pytest.raises(ValueError, match="type is required"):
             interactions.list()

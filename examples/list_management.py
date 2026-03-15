@@ -53,7 +53,7 @@ def main() -> None:
         print("List entries (first 5):")
         print("-" * 50)
         result = entries.list(
-            field_types=[FieldType.LIST_SPECIFIC],
+            field_types=[FieldType.LIST],
             limit=5,
         )
 

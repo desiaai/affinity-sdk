@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.yaniv-golan/xaffinity-mcp",
+  "title": "xaffinity MCP",
+  "description": "MCP server for Affinity CRM - entity search, relationship intelligence, and workflow management",
+  "version": "0.0.0-template",
+  "websiteUrl": "https://github.com/yaniv-golan/affinity-sdk",
+  "repository": {
+    "url": "https://github.com/yaniv-golan/affinity-sdk",
+    "source": "github",
+    "subfolder": "mcp"
+  },
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/yaniv-golan/affinity-sdk/releases/download/mcp-v0.0.0/xaffinity-mcp-0.0.0.mcpb",
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "version": "0.0.0-template",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AFFINITY_API_KEY",
+          "description": "Your Affinity API key (Settings > API in Affinity)",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

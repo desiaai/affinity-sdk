@@ -242,8 +242,9 @@
       "relatedCommands": ["entry get", "entry delete"]
     },
     "entry field": {
-      "whenToUse": "Update field values on a list entry.",
+      "whenToUse": "Read or update field values on a list entry. Use --get to read specific fields (returns resolved person/company objects, matching list export format). Use --set to update.",
       "examples": [
+        "entry field \"Pipeline\" 12345 --get Owner --get Status",
         "entry field \"Pipeline\" 12345 --set Status \"Active\"",
         "entry field \"Pipeline\" 12345 --set \"Deal Size\" 50000"
       ],
@@ -258,18 +259,33 @@
       "relatedCommands": ["list ls", "entry field"]
     },
     "field history": {
-      "whenToUse": "Audit who changed a field value and when. Use to track status changes, see modification timestamps, or investigate field value history. REQUIRES exactly one entity selector: --person-id, --company-id, --opportunity-id, or --list-entry-id.",
+      "whenToUse": "Audit who changed a field value and when for a SINGLE entity. Use to track status changes, see modification timestamps, or investigate field value history. REQUIRES exactly one entity selector: --person-id, --company-id, --opportunity-id, or --list-entry-id. For bulk history across a whole list, use 'field history-bulk' instead.",
       "requiredOneOf": [["--person-id", "--company-id", "--opportunity-id", "--list-entry-id"]],
       "examples": [
         "field history field-123456 --person-id 789",
         "field history field-123456 --company-id 456",
         "field history field-123456 --list-entry-id 999 --max-results 50"
       ],
-      "relatedCommands": ["field ls", "person get", "company get", "opportunity get", "entry get"],
+      "relatedCommands": ["field ls", "field history-bulk", "person get", "company get", "opportunity get", "entry get"],
       "mcpBehavior": {
         "limitEnforced": true,
         "defaultLimit": 1000,
         "maxLimit": 10000
+      }
+    },
+    "field history-bulk": {
+      "whenToUse": "Fetch field change history across an entire list or set of entries. Use for pipeline analysis (stage transitions, funnel conversion, time-in-stage). ALWAYS use --dry-run first to estimate API calls. Two modes: (1) --list-id with --all/--max-results for list-wide scans, (2) --list-entry-ids for specific entries. Each entry = 1 API call.",
+      "examples": [
+        "field history-bulk field-358027 --list-id Dealflow --dry-run",
+        "field history-bulk field-358027 --list-id Dealflow --max-results 50",
+        "field history-bulk field-358027 --list-id Dealflow --all",
+        "field history-bulk field-358027 --list-entry-ids 100,200,300",
+        "field history-bulk field-358027 --list-id Dealflow --max-results 100 --action-type update"
+      ],
+      "relatedCommands": ["field ls", "field history", "list export"],
+      "mcpBehavior": {
+        "limitEnforced": false,
+        "requiresDryRun": true
       }
     },
     "field create": {
@@ -301,8 +317,8 @@
       "relatedCommands": ["interaction ls", "interaction update"]
     },
     "interaction create": {
-      "whenToUse": "Log a meeting, call, or email. Requires --type and --participants.",
-      "relatedCommands": ["interaction ls", "note create"]
+      "whenToUse": "Log a meeting, call, or email. Requires --type and at least one --person-id. Must include both an internal person (workspace user) and an external person (contact). Use --include-me to auto-include your person ID.",
+      "relatedCommands": ["interaction ls", "note create", "whoami"]
     },
     "interaction update": {
       "whenToUse": "Update an existing interaction.",

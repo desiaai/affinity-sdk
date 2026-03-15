@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write  # Required for MCP Registry OIDC auth
 
 jobs:
   release:
@@ -137,6 +138,24 @@ jobs:
           git tag -a "${{ steps.version.outputs.tag_name }}" -m "Release ${{ steps.version.outputs.tag_name }}"
           git push origin "${{ steps.version.outputs.tag_name }}"
 
+      - name: Set up Python for release notes
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Generate release notes
+        shell: bash
+        env:
+          MCP_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python tools/generate_release_notes.py \
+            --version "$MCP_RELEASE_VERSION" \
+            --type mcp \
+            --output release_notes.md
+
+      - name: Validate MCP Registry metadata consistency
+        run: python tools/validate_mcp_registry_metadata.py --verbose
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -144,20 +163,77 @@ jobs:
           files: |
             mcp/.claude-plugin/xaffinity-mcp-plugin.zip
             mcp/dist/*.mcpb
-          generate_release_notes: true
           name: MCP Server ${{ steps.version.outputs.tag_name }}
-          body: |
-            ## Installation
+          body_path: release_notes.md
 
-            ### One-click install (Claude Desktop)
-            Download `xaffinity-mcp-*.mcpb` and double-click or drag to Claude Desktop.
+      # ------------------------------------------------------------------
+      # Publish to MCP Registry (non-blocking)
+      # ------------------------------------------------------------------
+      # These steps run AFTER the GitHub Release is created so the MCPB
+      # download URL is live before the registry points to it.
+      # All steps use continue-on-error so a registry outage does not
+      # fail the release.
 
-            ### Claude Code
-            ```bash
-            /plugin marketplace add yaniv-golan/affinity-sdk
-            /plugin install mcp@xaffinity
-            ```
+      - name: Load mcp-publisher version from lock file
+        id: publisher-version
+        run: |
+          source mcp/mcp-publisher.lock
+          echo "MCP_PUBLISHER_VERSION=${MCP_PUBLISHER_VERSION}" >> "$GITHUB_ENV"
+          echo "Using mcp-publisher ${MCP_PUBLISHER_VERSION}"
 
-            ### Manual configuration
-            Download `xaffinity-mcp-plugin.zip` and configure your MCP client manually.
-            See [documentation](https://yaniv-golan.github.io/affinity-sdk/latest/mcp/) for details.
+      - name: Install mcp-publisher
+        continue-on-error: true
+        id: install-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher --help > /dev/null 2>&1
+          echo "mcp-publisher installed successfully"
+
+      - name: Prepare server.json for MCP Registry
+        if: steps.install-publisher.outcome == 'success'
+        continue-on-error: true
+        id: prepare-server-json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          MCPB_FILE=$(ls mcp/dist/*.mcpb | head -1)
+          SHA256=$(openssl dgst -sha256 -r "$MCPB_FILE" | awk '{print $1}')
+          DOWNLOAD_URL="https://github.com/yaniv-golan/affinity-sdk/releases/download/mcp-v${VERSION}/xaffinity-mcp-${VERSION}.mcpb"
+
+          jq --arg v "$VERSION" \
+             --arg url "$DOWNLOAD_URL" \
+             --arg sha "$SHA256" \
+             '.version = $v
+              | .packages[0].version = $v
+              | .packages[0].identifier = $url
+              | .packages[0].fileSha256 = $sha' \
+             mcp/server.json > server.json
+
+          echo "server.json prepared for MCP Registry:"
+          cat server.json
+
+      - name: Authenticate to MCP Registry
+        if: steps.prepare-server-json.outcome == 'success'
+        continue-on-error: true
+        id: registry-auth
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        if: steps.registry-auth.outcome == 'success'
+        continue-on-error: true
+        id: registry-publish
+        run: ./mcp-publisher publish
+
+      - name: MCP Registry publish status
+        if: always()
+        run: |
+          if [[ "${{ steps.registry-publish.outcome }}" == "success" ]]; then
+            echo "::notice::MCP Registry publish completed successfully"
+          elif [[ "${{ steps.install-publisher.outcome }}" != "success" ]]; then
+            echo "::warning::MCP Registry publish skipped: mcp-publisher install failed"
+          elif [[ "${{ steps.prepare-server-json.outcome }}" != "success" ]]; then
+            echo "::warning::MCP Registry publish skipped: server.json preparation failed"
+          elif [[ "${{ steps.registry-auth.outcome }}" != "success" ]]; then
+            echo "::warning::MCP Registry publish skipped: OIDC authentication failed"
+          else
+            echo "::warning::MCP Registry publish failed (non-blocking)"
+          fi

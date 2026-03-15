@@ -372,3 +372,138 @@ def test_interaction_create_update_delete(respx_mock: respx.MockRouter) -> None:
     assert deleted.exit_code == 0
     deleted_payload = json.loads(deleted.output.strip())
     assert deleted_payload["data"]["success"] is True
+
+
+@pytest.mark.req("CLI-INTERACTION-INCLUDE-ME")
+def test_interaction_create_include_me(respx_mock: respx.MockRouter) -> None:
+    """--include-me resolves whoami and prepends person ID."""
+    respx_mock.get("https://api.affinity.co/v2/auth/whoami").mock(
+        return_value=Response(
+            200,
+            json={
+                "tenant": {"id": 1, "name": "Test", "subdomain": "test"},
+                "user": {
+                    "id": 100,
+                    "firstName": "Me",
+                    "lastName": "User",
+                    "emailAddress": "me@co.com",
+                },
+                "grant": {
+                    "type": "api_key",
+                    "scopes": ["all"],
+                    "createdAt": "2024-01-01T00:00:00Z",
+                },
+            },
+        )
+    )
+    respx_mock.post("https://api.affinity.co/interactions").mock(
+        return_value=Response(
+            200,
+            json={
+                "id": 20,
+                "type": 3,
+                "date": "2024-01-01T00:00:00Z",
+                "subject": "Meeting notes",
+                "persons": [
+                    {"id": 100, "type": "internal"},
+                    {"id": 42, "type": "external"},
+                ],
+            },
+        )
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "--json",
+            "interaction",
+            "create",
+            "--type",
+            "meeting",
+            "--person-id",
+            "42",
+            "--include-me",
+            "--content",
+            "Meeting notes",
+            "--date",
+            "2024-01-01T00:00:00Z",
+        ],
+        env={"AFFINITY_API_KEY": "test-key"},
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output.strip())
+    assert payload["data"]["interaction"]["id"] == 20
+
+    # Verify the POST body included both person IDs (100 from whoami + 42)
+    post_call = respx_mock.calls[-1]
+    body = json.loads(post_call.request.content)
+    assert 100 in body["person_ids"]
+    assert 42 in body["person_ids"]
+
+
+@pytest.mark.req("CLI-INTERACTION-INCLUDE-ME")
+def test_interaction_create_include_me_dedup(respx_mock: respx.MockRouter) -> None:
+    """--include-me deduplicates if user already passed their own ID."""
+    respx_mock.get("https://api.affinity.co/v2/auth/whoami").mock(
+        return_value=Response(
+            200,
+            json={
+                "tenant": {"id": 1, "name": "Test", "subdomain": "test"},
+                "user": {
+                    "id": 100,
+                    "firstName": "Me",
+                    "lastName": "User",
+                    "emailAddress": "me@co.com",
+                },
+                "grant": {
+                    "type": "api_key",
+                    "scopes": ["all"],
+                    "createdAt": "2024-01-01T00:00:00Z",
+                },
+            },
+        )
+    )
+    respx_mock.post("https://api.affinity.co/interactions").mock(
+        return_value=Response(
+            200,
+            json={
+                "id": 21,
+                "type": 3,
+                "date": "2024-01-01T00:00:00Z",
+                "subject": "Dedup test",
+                "persons": [
+                    {"id": 100, "type": "internal"},
+                    {"id": 42, "type": "external"},
+                ],
+            },
+        )
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "--json",
+            "interaction",
+            "create",
+            "--type",
+            "meeting",
+            "--person-id",
+            "100",
+            "--person-id",
+            "42",
+            "--include-me",
+            "--content",
+            "Dedup test",
+            "--date",
+            "2024-01-01T00:00:00Z",
+        ],
+        env={"AFFINITY_API_KEY": "test-key"},
+    )
+    assert result.exit_code == 0
+
+    # Verify person_ids has no duplicates
+    post_call = respx_mock.calls[-1]
+    body = json.loads(post_call.request.content)
+    assert body["person_ids"].count(100) == 1

@@ -68,6 +68,87 @@ class FieldValues(AffinityModel):
     requested: bool = False
     data: dict[str, Any] = Field(default_factory=dict)
 
+    def get(self, field_id: str | AnyFieldId) -> dict[str, Any] | None:
+        """
+        Get a field value by ID.
+
+        Args:
+            field_id: The field ID (e.g., "field-123" or FieldId(123))
+
+        Returns:
+            The field value dict containing 'id' and 'value' keys, or None if not found.
+
+        Example:
+            >>> company = client.companies.get(CompanyId(123), field_types=[FieldType.GLOBAL])
+            >>> field_data = company.fields.get("field-456")
+            >>> if field_data:
+            ...     print(field_data["value"])
+        """
+        fid = str(field_id)
+        return self.data.get(fid)
+
+    def get_value(self, field_id: str | AnyFieldId) -> Any:
+        """
+        Get the extracted field value by ID.
+
+        Handles nested value structures automatically:
+        - Text fields: returns string
+        - Dropdown fields: returns :class:`DropdownOption` (with id, text, rank, color)
+        - Person/Company references: returns dict with id + name fields
+        - Location fields: returns dict
+        - Multi-value fields: returns list of values
+
+        Args:
+            field_id: The field ID (e.g., "field-123" or FieldId(123))
+
+        Returns:
+            The extracted value, or None if field not found.
+
+        Example:
+            >>> status = company.fields.get_value("field-456")
+            >>> print(status)  # "Active" (not {"data": "Active"})
+        """
+        field_data = self.get(field_id)
+        if field_data is None:
+            return None
+        return self._extract_value(field_data.get("value"))
+
+    @staticmethod
+    def _extract_value(value: Any) -> Any:
+        """Extract the actual value from nested field value structure.
+
+        Returns typed objects where possible:
+        - Dropdown values → :class:`DropdownOption`
+        - Text/number → primitive
+        - Location → dict (pass-through)
+        - Multi-value → list of extracted values
+        """
+        if value is None:
+            return None
+
+        # Multi-value: list of value objects
+        if isinstance(value, list):
+            return [FieldValues._extract_value(v) for v in value]
+
+        # Single value object with nested data
+        if isinstance(value, dict):
+            # Dropdown option → typed DropdownOption
+            if "dropdownOptionId" in value:
+                return DropdownOption(
+                    id=DropdownOptionId(value["dropdownOptionId"]),
+                    text=value.get("text", ""),
+                    rank=value.get("rank"),
+                    color=value.get("color"),
+                )
+            # Standard data field (text, number, person ref, etc.)
+            if "data" in value:
+                return FieldValues._extract_value(value["data"])
+            # Location or other complex type - return as-is
+            return value
+
+        # Primitive value (shouldn't happen but handle gracefully)
+        return value
+
     @model_validator(mode="before")
     @classmethod
     def _coerce_from_api(cls, value: Any) -> Any:
@@ -81,6 +162,9 @@ class FieldValues(AffinityModel):
             data = {item["id"]: item for item in value if isinstance(item, dict) and "id" in item}
             return {"requested": True, "data": data}
         if isinstance(value, dict):
+            # Already in FieldValues format — pass through without re-wrapping
+            if "requested" in value and "data" in value and isinstance(value["data"], dict):
+                return value
             return {"requested": True, "data": value}
         return {"requested": True, "data": {}}
 
@@ -157,7 +241,7 @@ class DropdownOption(AffinityModel):
     id: DropdownOptionId
     text: str
     rank: int | None = None
-    color: int | None = None
+    color: int | str | None = None
 
 
 # =============================================================================
@@ -258,7 +342,13 @@ class Person(AffinityModel):
 
 
 class PersonCreate(AffinityModel):
-    """Data for creating a new person (V1 API)."""
+    """Data for creating a new person.
+
+    Note: "Current Organization" and "Current Job Title" cannot be set during
+    creation. "Current Organization" is a derived/system-managed field (read-only
+    via API, driven by enrichment and email domain). "Current Job Title" can be
+    updated after creation via the field-values endpoint.
+    """
 
     first_name: str
     last_name: str
@@ -635,7 +725,10 @@ class ListEntryWithEntity(AffinityModel):
     type: str  # "person", "company", or "opportunity"
     entity: Person | Company | Opportunity | None = None
 
-    # Field values (requested-vs-not-requested preserved)
+    # Field values — always requested=False at entry level because the V2 API
+    # nests field data inside entity.fields, not here. Use entry.entity.fields
+    # to access field data, or pass entries to FieldResolver.get() which
+    # auto-delegates to the inner entity.
     fields: FieldValues = Field(default_factory=FieldValues, alias="fields")
     fields_raw: list[dict[str, Any]] | None = Field(default=None, exclude=True)
 

@@ -1,9 +1,10 @@
 {
   "name": "xaffinity-mcp",
-  "description": "MCP server for Affinity CRM - structured workflow tools, relationship intelligence, and pipeline management",
-  "version": "1.17.0",
+  "description": "Affinity CRM workflows for Claude \u2014 meeting prep, pipeline review, warm intros, interaction logging, and relationship intelligence",
+  "version": "1.19.0",
   "author": {
-    "name": "Yaniv Golan"
+    "name": "Yaniv Golan",
+    "email": "yaniv@golan.name"
   },
   "homepage": "https://yaniv-golan.github.io/affinity-sdk/",
   "repository": "https://github.com/yaniv-golan/affinity-sdk",

@@ -31,7 +31,14 @@ from ..models.pagination import (
     PaginationInfo,
 )
 from ..models.secondary import MergeTask
-from ..models.types import AnyFieldId, CompanyId, FieldType, OpportunityId, PersonId
+from ..models.types import (
+    AnyFieldId,
+    CompanyId,
+    FieldType,
+    OpportunityId,
+    PersonId,
+    validate_entity_field_types,
+)
 
 if TYPE_CHECKING:
     from ..clients.http import AsyncHTTPClient, HTTPClient
@@ -139,6 +146,7 @@ class PersonService:
         Returns:
             Paginated response with persons
         """
+        validate_entity_field_types(field_types, endpoint="person")
         if cursor is not None:
             if any(p is not None for p in (ids, field_ids, field_types, filter, limit)):
                 raise ValueError(
@@ -167,6 +175,36 @@ class PersonService:
             data=[Person.model_validate(p) for p in data.get("data", [])],
             pagination=PaginationInfo.model_validate(data.get("pagination", {})),
         )
+
+    def get_first(
+        self,
+        *,
+        filter: str | FilterExpression | None = None,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> Person | None:
+        """
+        Get the first person matching the filter, or None if no match.
+
+        This is a convenience method equivalent to:
+            page = client.persons.list(filter=filter, limit=1)
+            return page.data[0] if page.data else None
+
+        Args:
+            filter: V2 filter expression
+            field_ids: Specific field IDs to include
+            field_types: Field types to include
+
+        Returns:
+            First matching Person, or None if no results.
+        """
+        page = self.list(
+            filter=filter,
+            field_ids=field_ids,
+            field_types=field_types,
+            limit=1,
+        )
+        return page.data[0] if page.data else None
 
     def pages(
         self,
@@ -997,6 +1035,7 @@ class AsyncPersonService:
         Returns:
             Paginated response with persons
         """
+        validate_entity_field_types(field_types, endpoint="person")
         if cursor is not None:
             if any(p is not None for p in (ids, field_ids, field_types, filter, limit)):
                 raise ValueError(
@@ -1025,6 +1064,102 @@ class AsyncPersonService:
             data=[Person.model_validate(p) for p in data.get("data", [])],
             pagination=PaginationInfo.model_validate(data.get("pagination", {})),
         )
+
+    async def get_first(
+        self,
+        *,
+        filter: str | FilterExpression | None = None,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> Person | None:
+        """
+        Get the first person matching the filter, or None if no match.
+
+        See PersonService.get_first() for details.
+        """
+        page = await self.list(
+            filter=filter,
+            field_ids=field_ids,
+            field_types=field_types,
+            limit=1,
+        )
+        return page.data[0] if page.data else None
+
+    async def batch_get(
+        self,
+        person_ids: Sequence[PersonId],
+        *,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+        include_field_values: bool = False,
+        with_interaction_dates: bool = False,
+        with_interaction_persons: bool = False,
+        max_concurrent: int = 10,
+        on_error: Literal["raise", "skip"] = "raise",
+    ) -> dict[PersonId, Person]:
+        """
+        Fetch multiple persons with controlled concurrency.
+
+        Makes individual get() calls with bounded concurrency.
+
+        Args:
+            person_ids: Person IDs to fetch
+            field_ids: Specific field IDs to include
+            field_types: Field types to include
+            include_field_values: If True, fetch embedded field values
+            with_interaction_dates: Include interaction date summaries
+            with_interaction_persons: Include person IDs for interactions
+            max_concurrent: Maximum concurrent API calls (default: 10)
+            on_error: How to handle AffinityError exceptions:
+                - "raise": Raise on first AffinityError (default)
+                - "skip": Skip failed IDs, return partial results
+
+        Returns:
+            Dict mapping person_id -> Person for successfully fetched persons.
+
+        Raises:
+            AffinityError: If on_error="raise" and any fetch fails.
+        """
+        if not person_ids:
+            return {}
+        if max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
+
+        unique_ids = list(dict.fromkeys(person_ids))
+        results: dict[PersonId, Person] = {}
+
+        async def fetch_one(pid: PersonId) -> tuple[PersonId, Person | None]:
+            try:
+                person = await self.get(
+                    pid,
+                    field_ids=field_ids,
+                    field_types=field_types,
+                    include_field_values=include_field_values,
+                    with_interaction_dates=with_interaction_dates,
+                    with_interaction_persons=with_interaction_persons,
+                )
+                return (pid, person)
+            except AffinityError:
+                if on_error == "raise":
+                    raise
+                return (pid, None)
+
+        for i in range(0, len(unique_ids), max_concurrent):
+            chunk = unique_ids[i : i + max_concurrent]
+            tasks = [asyncio.create_task(fetch_one(pid)) for pid in chunk]
+            try:
+                for coro in asyncio.as_completed(tasks):
+                    pid, person = await coro
+                    if person is not None:
+                        results[pid] = person
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+
+        return results
 
     async def pages(
         self,

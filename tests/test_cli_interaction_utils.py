@@ -38,7 +38,7 @@ class TestTransformInteractionData:
 
         with patch("affinity.cli.interaction_utils.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            mock_datetime.side_effect = datetime
 
             result = transform_interaction_data(interaction_dates, None)
 
@@ -57,7 +57,7 @@ class TestTransformInteractionData:
 
         with patch("affinity.cli.interaction_utils.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            mock_datetime.side_effect = datetime
 
             result = transform_interaction_data(interaction_dates, None)
 
@@ -76,7 +76,7 @@ class TestTransformInteractionData:
 
         with patch("affinity.cli.interaction_utils.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            mock_datetime.side_effect = datetime
 
             result = transform_interaction_data(interaction_dates, None)
 
@@ -95,7 +95,7 @@ class TestTransformInteractionData:
 
         with patch("affinity.cli.interaction_utils.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            mock_datetime.side_effect = datetime
 
             result = transform_interaction_data(interaction_dates, None)
 
@@ -197,7 +197,7 @@ class TestTransformInteractionData:
 
         with patch("affinity.cli.interaction_utils.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
-            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            mock_datetime.side_effect = datetime
 
             result = transform_interaction_data(interaction_dates, None)
 

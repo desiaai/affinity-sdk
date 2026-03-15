@@ -5,7 +5,7 @@ Two [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugins provid
 | Plugin | Best For | Key Feature |
 |--------|----------|-------------|
 | **sdk** | Python developers | Type-safe SDK patterns |
-| **cli** | CLI power users | `/affinity-help` quick reference |
+| **cli** | CLI power users | CLI skill + API key guard hook |
 
 All plugins are installed from the `xaffinity` marketplace.
 
@@ -29,7 +29,7 @@ Install the plugin(s) you need:
 # For Python SDK development
 /plugin install sdk@xaffinity
 
-# For CLI usage + /affinity-help command
+# For CLI usage + hooks
 /plugin install cli@xaffinity
 ```
 
@@ -94,10 +94,6 @@ client.persons.list(filter=F.field("Department").equals("Sales"))
 
 Teaches Claude the correct patterns for running `xaffinity` CLI commands.
 
-### /affinity-help command
-
-Run `/affinity-help` in Claude Code for a quick reference of CLI patterns.
-
 ### What the skill teaches Claude
 
 - Always use `--readonly` by default
@@ -146,3 +142,23 @@ The MCP server is protocol-agnostic and works with any MCP client (Claude Deskto
 /plugin uninstall sdk@xaffinity
 /plugin uninstall cli@xaffinity
 ```
+
+---
+
+## Known Issues
+
+### Plugin cache may be empty after fresh install
+
+After a fresh install, the plugin cache directory may be empty — skills and hooks won't load. This is a known Claude Code platform issue ([#17361](https://github.com/anthropics/claude-code/issues/17361), [#13799](https://github.com/anthropics/claude-code/issues/13799)).
+
+**Workaround:** After installing, click "Update" (in Claude Cowork UI) or run a marketplace update (in Claude Code CLI) to force a cache refresh:
+
+- **Claude Cowork:** Go to plugin settings, select the xaffinity marketplace, and click **Update**
+- **Claude Code CLI:**
+  ```bash
+  /plugin marketplace update xaffinity
+  /plugin update cli@xaffinity
+  /plugin update sdk@xaffinity
+  ```
+
+Then restart the session. You can verify the plugin loaded by checking if skills appear in the session.

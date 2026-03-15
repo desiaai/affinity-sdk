@@ -555,8 +555,6 @@ async def async_check_unreplied(
 
         # Build entity-specific filter kwargs
         # Handle V1 (integer) and V2 (string) entityType formats
-        # NOTE: We omit type filter to fetch all interactions in one call,
-        # then filter locally to directional types only
         iter_kwargs: dict[str, Any] = {
             "start_time": start_time,
             "end_time": now,
@@ -572,12 +570,15 @@ async def async_check_unreplied(
             logger.debug(f"Unsupported entity type for unreplied check: {entity_type}")
             return None
 
-        # Fetch all interactions and filter to directional types locally
-        all_interactions = []
-        async for interaction in client.interactions.iter(**iter_kwargs):
-            all_interactions.append(interaction)
+        # Fetch interactions per directional type in parallel (V1 API requires type parameter)
+        async def _fetch_type(itype: InteractionType) -> list[Any]:
+            result = []
+            async for interaction in client.interactions.iter(**iter_kwargs, type=itype):
+                result.append(interaction)
+            return result
 
-        directional = [i for i in all_interactions if i.type in DIRECTIONAL_TYPES]
+        type_results = await asyncio.gather(*[_fetch_type(itype) for itype in types_to_check])
+        directional = [i for sublist in type_results for i in sublist]
 
         if not directional:
             return None

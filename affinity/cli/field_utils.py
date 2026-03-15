@@ -285,24 +285,26 @@ class FieldResolver:
                 return field
         return None
 
-    def resolve_dropdown_value(self, field_id: str, value: str) -> tuple[dict[str, int] | str, str]:
-        """Resolve a dropdown value (text or ID) to its option ID and value_type.
+    def resolve_field_value(
+        self, field_id: str, value: str | list[str]
+    ) -> tuple[list[dict[str, int]] | dict[str, int] | str | list[str], str]:
+        """Resolve a field value to the format expected by the V2 API.
 
-        For dropdown/ranked-dropdown fields, accepts either:
-        - Dropdown option text (e.g., "In Progress") → returns (option_id, value_type)
-        - Dropdown option ID (e.g., "304089" or 304089) → returns (option_id, value_type)
-
-        For non-dropdown fields, returns the value unchanged with inferred type.
+        Handles type-specific wrapping:
+        - Dropdown/ranked-dropdown/dropdown-multi: text/ID → ``{"dropdownOptionId": ID}``
+        - Person/company: ID → ``{"id": ID}``
+        - Person-multi/company-multi: ID(s) → ``[{"id": ID}, ...]``
+        - Other types: returns value unchanged with inferred type
 
         Args:
             field_id: The field ID.
-            value: The value to resolve (text or ID).
+            value: The value to resolve (text, ID, or list for multi fields).
 
         Returns:
             Tuple of (resolved_value, value_type_string).
 
         Raises:
-            CLIError: If dropdown option text not found.
+            CLIError: If dropdown option text not found or entity ID is invalid.
         """
         from ..models.types import FieldValueType
 
@@ -314,17 +316,49 @@ class FieldResolver:
         value_type = field.value_type
         type_str = value_type.value if isinstance(value_type, FieldValueType) else str(value_type)
 
-        # Handle dropdown and ranked-dropdown fields
-        # V2 API expects: {"data": {"dropdownOptionId": ID}, "type": "dropdown|ranked-dropdown"}
-        if type_str in ("dropdown", "ranked-dropdown"):
+        # V1 API returns the base type (e.g., "dropdown", "person", "company") for
+        # both single and multi fields, relying on allows_multiple to distinguish.
+        # Promote to "-multi" so the correct API payload format is used downstream.
+        if field.allows_multiple and type_str in ("dropdown", "person", "company"):
+            type_str = f"{type_str}-multi"
+
+        # Handle dropdown, ranked-dropdown, and dropdown-multi fields
+        # V2 API expects:
+        #   dropdown/ranked-dropdown: {"data": {"dropdownOptionId": ID}, "type": "..."}
+        #   dropdown-multi: {"data": [{"dropdownOptionId": ID}], "type": "dropdown-multi"}
+        if type_str in ("dropdown", "ranked-dropdown", "dropdown-multi"):
+            # For dropdown-multi, accept list values (e.g., from --set-json ["AN", "YG"])
+            if isinstance(value, list):
+                if type_str != "dropdown-multi":
+                    raise CLIError(
+                        f"List values are only supported for dropdown-multi fields, "
+                        f"but '{field.name}' is '{type_str}'.",
+                        exit_code=2,
+                        error_type="validation_error",
+                    )
+                all_resolved: list[dict[str, int]] = []
+                for item in value:
+                    item_result, _ = self.resolve_dropdown_value(field_id, str(item))
+                    # Single-element resolve for dropdown-multi returns [{"dropdownOptionId": ID}]
+                    if isinstance(item_result, dict):
+                        all_resolved.append(item_result)
+                    elif isinstance(item_result, list):
+                        for entry in item_result:
+                            if isinstance(entry, dict):
+                                all_resolved.append(entry)
+                return all_resolved, type_str
+
             options = field.dropdown_options
 
             # First, try to match by option text (case-insensitive)
-            value_lower = value.strip().lower()
+            value_lower = str(value).strip().lower()
             for opt in options:
                 if opt.text.lower() == value_lower:
-                    # V2 API format: wrap option ID in {"dropdownOptionId": ...}
-                    return {"dropdownOptionId": int(opt.id)}, type_str
+                    resolved: dict[str, int] = {"dropdownOptionId": int(opt.id)}
+                    # dropdown-multi expects array of option objects
+                    if type_str == "dropdown-multi":
+                        return [resolved], type_str
+                    return resolved, type_str
 
             # Then, try to parse as option ID
             try:
@@ -332,8 +366,10 @@ class FieldResolver:
                 # Validate the ID exists
                 for opt in options:
                     if int(opt.id) == option_id:
-                        # V2 API format: wrap option ID in {"dropdownOptionId": ...}
-                        return {"dropdownOptionId": option_id}, type_str
+                        resolved = {"dropdownOptionId": option_id}
+                        if type_str == "dropdown-multi":
+                            return [resolved], type_str
+                        return resolved, type_str
                 # ID not found in options
                 available = [f"'{opt.text}'" for opt in options[:5]]
                 suffix = "..." if len(options) > 5 else ""
@@ -354,8 +390,96 @@ class FieldResolver:
                     hint=f"Available options: {', '.join(available)}{suffix}",
                 ) from None
 
+        # Handle entity-reference fields (person, company and their -multi variants)
+        if type_str in ("person", "person-multi", "company", "company-multi"):
+            is_multi = type_str.endswith("-multi")
+
+            if isinstance(value, list):
+                if not is_multi:
+                    raise CLIError(
+                        f"List values not supported for '{type_str}' field '{field.name}'.",
+                        exit_code=2,
+                        error_type="validation_error",
+                    )
+                return [
+                    {"id": _coerce_entity_id(item, field.name, type_str)} for item in value
+                ], type_str
+
+            entity_id = _coerce_entity_id(value, field.name, type_str)
+            wrapped: dict[str, int] = {"id": entity_id}
+            return ([wrapped], type_str) if is_multi else (wrapped, type_str)
+
         # For non-dropdown fields, return value and inferred type
         return value, type_str
+
+    # Backward-compat alias
+    resolve_dropdown_value = resolve_field_value
+
+
+def _coerce_entity_id(value: Any, field_name: str, type_str: str) -> int:
+    """Coerce a value to an integer entity ID with strict validation.
+
+    Args:
+        value: The value to coerce (string or int).
+        field_name: Field name for error messages.
+        type_str: Field type string for error messages.
+
+    Returns:
+        Integer entity ID.
+
+    Raises:
+        CLIError: If value is not a valid entity ID.
+    """
+    # Reject bool before int check (isinstance(True, int) is True)
+    if isinstance(value, bool):
+        raise CLIError(
+            f"Invalid entity ID '{value}' for {type_str} field '{field_name}': "
+            "expected a numeric ID.",
+            exit_code=2,
+            error_type="validation_error",
+        )
+    if isinstance(value, int):
+        return value
+    # String: try to parse as integer
+    s = str(value).strip()
+    try:
+        return int(s)
+    except ValueError:
+        raise CLIError(
+            f"Invalid entity ID '{value}' for {type_str} field '{field_name}': "
+            "expected a numeric ID.",
+            exit_code=2,
+            error_type="validation_error",
+        ) from None
+
+
+def _extract_entity_id(fv_value: Any) -> int | None:
+    """Extract an integer entity ID from an existing field value.
+
+    Handles the various formats returned by the field values API:
+    - Dict with "id" key: ``{"id": 123}`` or ``{"id": "123"}``
+    - Scalar int or numeric string: ``123`` or ``"123"``
+
+    Args:
+        fv_value: The field value from the API.
+
+    Returns:
+        Integer entity ID, or None if unparseable.
+    """
+    if fv_value is None or isinstance(fv_value, bool):
+        return None
+    if isinstance(fv_value, dict):
+        raw_id = fv_value.get("id")
+        if raw_id is None or isinstance(raw_id, bool):
+            return None
+        try:
+            return int(raw_id)
+        except (ValueError, TypeError):
+            return None
+    try:
+        return int(fv_value)
+    except (ValueError, TypeError):
+        return None
 
 
 def validate_field_option_mutual_exclusion(

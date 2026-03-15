@@ -671,6 +671,7 @@ xaffinity list entry field "Portfolio" 123 --append Tags "NewTag" --unset-value 
 - Field IDs (`field-123`) can be used directly
 - `--set` replaces all existing values; use `--append` to add to multi-value fields
 - `--get` is exclusive with write operations
+- `--get` returns resolved objects for person/company reference fields (with `firstName`, `lastName`, `primaryEmailAddress`, etc.) and full dropdown option data (with `text`, `color`). Output format matches `list export`.
 - Operation order: `--set`/`--set-json` → `--append` → `--unset`/`--unset-value`
 
 ## Notes

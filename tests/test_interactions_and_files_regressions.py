@@ -34,7 +34,12 @@ def test_v1_interactions_list_parses_type_specific_keys() -> None:
     )
     try:
         service = InteractionService(http)
-        page = service.list(type=InteractionType.EMAIL, person_id=PersonId(1))
+        page = service.list(
+            type=InteractionType.EMAIL,
+            person_id=PersonId(1),
+            start_time=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            end_time=datetime(2024, 6, 1, tzinfo=timezone.utc),
+        )
         assert len(page.data) == 1
         assert page.data[0].id == 1
         assert page.data[0].type == int(InteractionType.EMAIL)

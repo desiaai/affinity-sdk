@@ -188,6 +188,21 @@ Returns:
 - `lastEmail.date`, `lastEmail.daysSince`
 - `lastInteraction.date`, `lastInteraction.daysSince`
 
+### Create an interaction
+Interactions require at least one internal person (workspace user) and one external person (contact). Use `--include-me` to auto-include the current user.
+```bash
+# Log a meeting (--include-me auto-adds your person ID as internal)
+interaction create --type meeting --person-id 67890 --include-me \
+  --content "Discussed Q3 goals" --date 2025-06-15T14:00:00Z
+
+# Log an email with explicit person IDs
+interaction create --type email --person-id 12345 --person-id 67890 \
+  --content "Follow-up on proposal" --date 2025-06-15T10:00:00Z --direction outgoing
+```
+**Important:** `user.id` from `whoami` IS a person ID — workspace users are persons with type `internal`. You can use any `creator_id` (a user ID) directly with `person get` or `person ls` to resolve the user's name. No special user-listing API is needed.
+
+**Limitation:** The API only supports adding person IDs as participants. The UI's "Also add to... search for an entity" feature (which associates an interaction with a company or opportunity) has no API equivalent.
+
 ### Find unreplied messages
 ```bash
 list export Dealflow --check-unreplied                     # Find unreplied incoming messages (email/chat)
@@ -222,6 +237,33 @@ Use `field history` to:
 
 **Note**: Requires the field ID (from `field ls`) and exactly one entity selector (`--person-id`, `--company-id`, `--opportunity-id`, or `--list-entry-id`).
 
+### Bulk field change history (pipeline analysis)
+For pipeline stage analysis, funnel conversion, or time-in-stage metrics across a whole list, use `field history-bulk`:
+
+```bash
+# Step 1: Find the status field ID
+field ls --list-id Dealflow                          # Look for a dropdown field like "Status"
+
+# Step 2: Estimate API cost (ALWAYS do this first)
+field history-bulk field-358027 --list-id Dealflow --dry-run
+
+# Step 3: Fetch history (bounded)
+field history-bulk field-358027 --list-id Dealflow --max-results 50    # Sample N entries
+field history-bulk field-358027 --list-id Dealflow --all               # All entries (can be thousands of API calls)
+field history-bulk field-358027 --list-entry-ids 100,200,300           # Specific entries only
+field history-bulk field-358027 --list-id Dealflow --max-results 100 --action-type update  # Only stage changes
+```
+
+Each row has: `id`, `fieldId`, `entityId`, `listEntryId`, `entityName`, `actionType` (`create`/`update`/`delete`), `value`, `changedAt`, `changerName`, `changer`.
+
+**Reconstructing transitions:** Sort events per entity by `changedAt`. Each row's `value` is the value AT that point — compare consecutive rows to derive old→new transitions.
+
+**Important:**
+- Each list entry = 1 API call. A list with 9,000 entries = 9,000 API calls with `--all`.
+- Always `--dry-run` first to see `estimatedApiCalls`.
+- With `--list-entry-ids`, `entityName` is null — join with `list export` data if names are needed.
+- Partial failures (e.g., deleted entries) are reported as warnings without blocking other entries.
+
 ## Common Mistakes
 
 ### Mistake 1: Looking up IDs unnecessarily
@@ -242,6 +284,9 @@ company ls --filter "Status=New"
 # ✓ RIGHT - use list export for list-specific fields
 list export Dealflow --filter "Status=New"
 ```
+
+### Mistake 3: Trying to set "Current Organization" via API
+"Current Organization" is a derived/system-managed field — it cannot be set or updated directly. It is driven by enrichment data and email domain. "Current Job Title" can be updated after person creation using `field update`, but neither field can be set during `person create`.
 
 ### Output Format Recommendations
 
@@ -310,6 +355,14 @@ Task statuses: `pending`, `in_progress`, `success`, `failed`
 ## Write Operations
 
 Use `execute-write-command` for mutations (create, update, delete). Common patterns:
+
+### Reading List Entry Fields
+To read specific field values from a list entry:
+```bash
+entry field "Dealflow" 12345 --get "Owner" --get "Status"
+```
+
+Returns resolved objects for person/company reference fields (with `firstName`, `lastName`, `primaryEmailAddress`, etc.) and full dropdown option data (with `text`, `color`, `rank`). Output format matches `list export`.
 
 ### Updating List Entry Fields
 To set a field value on a list entry:

@@ -171,8 +171,8 @@ class DropdownOptionId(IntId):
     pass
 
 
-class UserId(IntId):
-    pass
+class UserId(PersonId):
+    """Workspace member ID. A subtype of PersonId — users are internal persons in Affinity."""
 
 
 class TenantId(IntId):
@@ -428,15 +428,43 @@ def to_v1_value_type_code(
 
 class FieldType(OpenStrEnum):
     """
-    Field types based on their source/scope.
-    V2 API uses these string identifiers.
+    Field type for API parameters and response metadata.
+
+    Note: LIST is only valid in requests to list entry endpoints.
+    Company/person endpoints accept ENRICHED, GLOBAL, and
+    RELATIONSHIP_INTELLIGENCE only.
     """
 
     ENRICHED = "enriched"
     LIST = "list"
-    LIST_SPECIFIC = "list-specific"  # Alias used in some API responses
     GLOBAL = "global"
     RELATIONSHIP_INTELLIGENCE = "relationship-intelligence"
+
+
+# Field types valid for entity (company/person) endpoints — LIST is not valid there
+_ENTITY_FIELD_TYPES = frozenset(
+    {FieldType.ENRICHED, FieldType.GLOBAL, FieldType.RELATIONSHIP_INTELLIGENCE}
+)
+
+
+def validate_entity_field_types(field_types: Any, *, endpoint: str) -> None:
+    """Raise ValueError if field_types contains LIST (only valid for list entry endpoints)."""
+    if field_types is None:
+        return
+    for ft in field_types:
+        if ft == FieldType.LIST:
+            raise ValueError(
+                f"FieldType.LIST is not valid for {endpoint} endpoints. "
+                f"LIST is only valid for list entry endpoints. "
+                f"Valid types: enriched, global, relationship-intelligence."
+            )
+
+
+class ResolveMode(Enum):
+    """Controls how FieldResolver.get() returns complex field values."""
+
+    RAW = "raw"  # Return extracted values as-is (default)
+    TEXT = "text"  # Resolve all complex types to human-readable strings
 
 
 class InteractionType(OpenIntEnum):

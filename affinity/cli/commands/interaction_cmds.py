@@ -667,6 +667,12 @@ def interaction_get(ctx: CLIContext, interaction_id: int, *, interaction_type: s
     default=None,
     help="Direction (incoming, outgoing).",
 )
+@click.option(
+    "--include-me",
+    is_flag=True,
+    default=False,
+    help="Auto-include your person ID (resolved via whoami).",
+)
 @output_options
 @click.pass_obj
 def interaction_create(
@@ -677,13 +683,14 @@ def interaction_create(
     content: str,
     date: str,
     direction: str | None,
+    include_me: bool,
 ) -> None:
     """Create an interaction."""
 
     def fn(ctx: CLIContext, warnings: list[str]) -> CommandOutput:
-        if not person_ids:
+        if not person_ids and not include_me:
             raise CLIError(
-                "At least one --person-id is required.",
+                "At least one --person-id is required (or use --include-me).",
                 error_type="usage_error",
                 exit_code=2,
             )
@@ -699,10 +706,17 @@ def interaction_create(
         date_value = parse_iso_datetime(date, label="date")
 
         client = ctx.get_client(warnings=warnings)
+
+        resolved_ids = list(person_ids)
+        if include_me:
+            who = client.whoami()
+            if who.user.id not in resolved_ids:
+                resolved_ids.insert(0, who.user.id)
+
         interaction = client.interactions.create(
             InteractionCreate(
                 type=parsed_type,
-                person_ids=[PersonId(pid) for pid in person_ids],
+                person_ids=[PersonId(pid) for pid in resolved_ids],
                 content=content,
                 date=date_value,
                 direction=parsed_direction,
@@ -712,7 +726,7 @@ def interaction_create(
         # Build CommandContext for interaction create
         ctx_modifiers: dict[str, object] = {
             "type": interaction_type,
-            "personIds": list(person_ids),
+            "personIds": resolved_ids,
             "date": date,
         }
         if direction:

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import os
+import sys
+from typing import Any
+
 from affinity.models.entities import FieldCreate, FieldMetadata, FieldValueChange
 from affinity.models.types import EntityType, FieldValueType
 from affinity.types import (
@@ -14,10 +19,10 @@ from affinity.types import (
 
 from ..click_compat import RichCommand, RichGroup, click
 from ..context import CLIContext
-from ..decorators import category, destructive
+from ..decorators import category, destructive, progress_capable
 from ..errors import CLIError
 from ..mcp_limits import apply_mcp_limits
-from ..options import output_options
+from ..options import csv_output_options, output_options
 from ..resolve import resolve_list_selector
 from ..results import CommandContext
 from ..runner import CommandOutput, run_command
@@ -123,6 +128,7 @@ def _validate_exactly_one_selector(
 @field_group.command(name="ls", cls=RichCommand)
 @click.option(
     "--list-id",
+    "--list",
     type=str,
     default=None,
     help="Filter by list (ID or name).",
@@ -413,3 +419,296 @@ def field_history(
         )
 
     run_command(ctx, command="field history", fn=fn)
+
+
+# ---------------------------------------------------------------------------
+# history-bulk
+# ---------------------------------------------------------------------------
+
+_HISTORY_BULK_DEFAULT_CONCURRENCY = 15
+
+
+def _get_entity_name_from_entry(entry: Any) -> str | None:
+    """Extract entity name from a ListEntryWithEntity."""
+    if entry.entity is None:
+        return None
+    name = getattr(entry.entity, "name", None)
+    if name is None and hasattr(entry.entity, "full_name"):
+        name = entry.entity.full_name or None
+    return name
+
+
+@progress_capable
+@category("read")
+@field_group.command(name="history-bulk", cls=RichCommand)
+@click.argument("field_id", type=str)
+@click.option(
+    "--list-id",
+    "--list",
+    type=str,
+    default=None,
+    help="List ID or name — required unless --list-entry-ids is provided.",
+)
+@click.option(
+    "--list-entry-ids",
+    type=str,
+    default=None,
+    help="Comma-separated list entry IDs (mutually exclusive with --list-id).",
+)
+@click.option(
+    "--max-results",
+    "--limit",
+    "-n",
+    type=int,
+    default=None,
+    help="Max number of entries to process.",
+)
+@click.option("--all", "all_entries", is_flag=True, help="Process all entries in the list.")
+@click.option(
+    "--action-type",
+    type=click.Choice(["create", "update", "delete"]),
+    default=None,
+    help="Filter by action type.",
+)
+@click.option("--dry-run", is_flag=True, help="Show estimated API calls without executing.")
+@csv_output_options
+@click.pass_obj
+def field_history_bulk(
+    ctx: CLIContext,
+    *,
+    field_id: str,
+    list_id: str | None,
+    list_entry_ids: str | None,
+    max_results: int | None,
+    all_entries: bool,
+    action_type: str | None,
+    dry_run: bool,
+) -> None:
+    """Fetch field value change history for multiple list entries.
+
+    Uses async fan-out with bounded concurrency.
+
+    FIELD_ID is the field identifier (e.g., 'field-123').
+
+    Examples:
+
+    - `xaffinity field history-bulk field-123 --list-id 42 --all`
+
+    - `xaffinity field history-bulk field-123 --list-entry-ids 10,20,30`
+
+    - `xaffinity field history-bulk field-123 --list-id "My Pipeline" --max-results 50`
+
+    - `xaffinity field history-bulk field-123 --list-id 42 --all --dry-run`
+    """
+
+    def fn(ctx: CLIContext, warnings: list[str]) -> CommandOutput:
+        # --- Validation ---
+        if list_id is not None and list_entry_ids is not None:
+            raise CLIError(
+                "--list-id and --list-entry-ids are mutually exclusive.",
+                error_type="usage_error",
+                exit_code=2,
+            )
+
+        if list_id is None and list_entry_ids is None:
+            raise CLIError(
+                "Specify --list-entry-ids, --max-results, or --all to set a bound.\n"
+                "Use --dry-run to estimate the number of API calls first.",
+                error_type="usage_error",
+                exit_code=2,
+            )
+
+        if list_entry_ids is not None and all_entries:
+            raise CLIError(
+                "--list-entry-ids and --all are mutually exclusive. "
+                "Entry IDs are already explicit.",
+                error_type="usage_error",
+                exit_code=2,
+            )
+
+        if list_id is not None and not all_entries and max_results is None:
+            raise CLIError(
+                "Specify --list-entry-ids, --max-results, or --all to set a bound.\n"
+                "Use --dry-run to estimate the number of API calls first.",
+                error_type="usage_error",
+                exit_code=2,
+            )
+
+        # --- Resolve entries ---
+        # entry_ids: list of ListEntryId to process
+        # entry_names: mapping entry_id -> entity name (populated only for --list-id path)
+        entry_ids: list[int] = []
+        entry_names: dict[int, str | None] = {}
+
+        if list_entry_ids is not None:
+            # Parse comma-separated IDs
+            for part in list_entry_ids.split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                try:
+                    entry_ids.append(int(part))
+                except ValueError:
+                    raise CLIError(
+                        f"Invalid list entry ID: {part!r}",
+                        error_type="usage_error",
+                        exit_code=2,
+                    ) from None
+        else:
+            # --list-id path: use sync client to resolve list and fetch entries
+            client = ctx.get_client(warnings=warnings)
+            cache = ctx.session_cache
+            resolved = resolve_list_selector(client=client, selector=list_id, cache=cache)  # type: ignore[arg-type]
+            resolved_list_id = int(resolved.list.id)
+
+            # Fetch entries from the list
+            entries_iter = client.lists.entries(ListId(resolved_list_id)).all()
+            for count, entry in enumerate(entries_iter, 1):
+                entry_ids.append(int(entry.id))
+                entry_names[int(entry.id)] = _get_entity_name_from_entry(entry)
+                if max_results is not None and count >= max_results:
+                    break
+
+        total = len(entry_ids)
+
+        # --- Dry run ---
+        if dry_run:
+            cmd_context = CommandContext(
+                name="field history-bulk",
+                inputs={"fieldId": field_id},
+                modifiers={"dryRun": True},
+            )
+            return CommandOutput(
+                data={
+                    "dryRun": True,
+                    "entries": total,
+                    "estimatedApiCalls": total,
+                    "fieldId": field_id,
+                },
+                context=cmd_context,
+                api_called=False,
+            )
+
+        # --- Execute async fan-out ---
+        parsed_action_type = _ACTION_TYPE_MAP[action_type] if action_type else None
+        concurrency = int(
+            os.environ.get("XAFFINITY_CONCURRENCY", _HISTORY_BULK_DEFAULT_CONCURRENCY)
+        )
+        show_progress = (
+            ctx.progress != "never"
+            and not ctx.quiet
+            and (ctx.progress == "always" or sys.stderr.isatty())
+        )
+
+        async def _run() -> tuple[list[dict[str, object]], list[str]]:
+            from affinity import AsyncAffinity
+            from affinity.hooks import ResponseInfo
+
+            from ..query.executor import RateLimitedExecutor
+
+            rate_limiter = RateLimitedExecutor(concurrency=concurrency)
+
+            settings = ctx.resolve_client_settings(warnings=warnings)
+
+            original_on_response = settings.on_response
+
+            def combined_on_response(res: ResponseInfo) -> None:
+                if original_on_response is not None:
+                    original_on_response(res)
+                remaining_str = res.headers.get("X-RateLimit-Remaining")
+                remaining = (
+                    int(remaining_str) if remaining_str and remaining_str.isdigit() else None
+                )
+                rate_limiter.on_response(res.status_code, remaining)
+
+            async with AsyncAffinity(
+                api_key=settings.api_key,
+                v1_base_url=settings.v1_base_url,
+                v2_base_url=settings.v2_base_url,
+                timeout=settings.timeout,
+                log_requests=settings.log_requests,
+                max_retries=settings.max_retries,
+                on_request=settings.on_request,
+                on_response=combined_on_response,
+                on_error=settings.on_error,
+                policies=settings.policies,
+            ) as async_client:
+                results: list[dict[str, object]] = []
+                async_warnings: list[str] = []
+                completed = 0
+                succeeded = 0
+                failed = 0
+
+                async def fetch_one(eid: int) -> list[dict[str, object]]:
+                    nonlocal completed, succeeded, failed
+                    try:
+                        async with rate_limiter:
+                            changes = await async_client.field_value_changes.list(
+                                field_id=FieldId(field_id),
+                                list_entry_id=ListEntryId(eid),
+                                action_type=parsed_action_type,
+                            )
+                        rows: list[dict[str, object]] = []
+                        for item in changes:
+                            payload = _field_value_change_payload(item)
+                            payload["entityName"] = entry_names.get(eid)
+                            rows.append(payload)
+                        succeeded += 1
+                        return rows
+                    except Exception as exc:
+                        failed += 1
+                        async_warnings.append(f"Entry {eid}: {exc}")
+                        return []
+                    finally:
+                        completed += 1
+                        if show_progress:
+                            sys.stderr.write(f"\r{completed}/{total} entries processed")
+                            sys.stderr.flush()
+
+                tasks = [asyncio.create_task(fetch_one(eid)) for eid in entry_ids]
+                for task in asyncio.as_completed(tasks):
+                    batch = await task
+                    results.extend(batch)
+
+                # Clear progress line
+                if show_progress and total > 0:
+                    sys.stderr.write("\r" + " " * 40 + "\r")
+                    sys.stderr.flush()
+
+                if failed > 0:
+                    async_warnings.append(
+                        f"{succeeded} of {total} entries succeeded, {failed} failed"
+                    )
+                return results, async_warnings
+
+        all_changes, async_warnings = asyncio.run(_run())
+        warnings.extend(async_warnings)
+
+        # Build CommandContext
+        inputs: dict[str, object] = {"fieldId": field_id}
+        modifiers: dict[str, object] = {}
+        if list_id is not None:
+            inputs["listId"] = list_id
+        if list_entry_ids is not None:
+            inputs["listEntryIds"] = list_entry_ids
+        if action_type is not None:
+            modifiers["actionType"] = action_type
+        if max_results is not None:
+            modifiers["maxResults"] = max_results
+        if all_entries:
+            modifiers["all"] = True
+
+        cmd_context = CommandContext(
+            name="field history-bulk",
+            inputs=inputs,
+            modifiers=modifiers,
+        )
+
+        return CommandOutput(
+            data={"fieldValueChanges": all_changes},
+            context=cmd_context,
+            api_called=True,
+            warnings=warnings,
+        )
+
+    run_command(ctx, command="field history-bulk", fn=fn)

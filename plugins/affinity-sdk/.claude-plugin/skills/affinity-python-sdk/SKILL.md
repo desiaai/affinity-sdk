@@ -1,11 +1,9 @@
 ---
 name: affinity-python-sdk
-description: Use when writing Python code with the Affinity SDK, or when user asks about "affinity-sdk", "affinity package", typed IDs, async Affinity client, pagination, or Python scripts for Affinity CRM.
+description: "Writes Python code using the Affinity SDK for CRM data access and automation. Use when user asks to write Python scripts for Affinity, mentions affinity-sdk, typed IDs, async client, pagination, or Affinity Python code."
 ---
 
 # Affinity Python SDK
-
-Use this skill when writing Python scripts to interact with Affinity CRM.
 
 ## IMPORTANT: Write Operations Require Explicit User Request
 
@@ -49,6 +47,61 @@ async with AsyncAffinity.from_env(policies=Policies(write=WritePolicy.DENY)) as 
     companies = await client.companies.all()
 ```
 
+## Multi-Source Tasks: Output Only the Summary
+
+When a task combines data from **multiple Affinity sources** (e.g., person + interactions + list entries), fetch everything in one script and **print only the relevant summary**. Never dump raw `model_dump_json()` — it floods the conversation with hundreds of lines the agent must parse just to extract a few facts.
+
+**Do this when:** combining entity details with interactions, cross-referencing list entries with entities, generating reports from multiple queries.
+
+**A single SDK call is fine when:** fetching one entity, listing one page of results, or performing a single write.
+
+### Bad: dumping raw models
+
+```python
+person = client.persons.get(PersonId(123))
+print(person.model_dump_json(indent=2))  # 200+ lines of raw JSON
+```
+
+### Good: extract and print only what's needed
+
+```python
+person = client.persons.get(PersonId(123))
+print(f"Name: {person.first_name} {person.last_name}")
+print(f"Email: {person.primary_email}")
+```
+
+### Full example: deals with no recent contact
+
+```python
+"""Find pipeline deals with no contact in 30 days."""
+from datetime import datetime, timedelta, timezone
+from affinity import Affinity
+from affinity.policies import Policies, WritePolicy
+from affinity.types import InteractionType, FieldType
+
+with Affinity.from_env(load_dotenv=True, policies=Policies(write=WritePolicy.DENY)) as client:
+    pipeline = client.lists.resolve(name="Dealflow")
+    entries = client.lists.entries(pipeline.id).all(
+        field_types=[FieldType.LIST],
+        expand=["interactionDates"],
+    )
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    stale = []
+    for entry in entries:
+        last = getattr(entry, "last_interaction_date", None)
+        if last is None or last < cutoff:
+            stale.append(entry)
+
+    print(f"Deals with no contact in 30 days: {len(stale)}/{len(entries)}")
+    for e in stale:
+        days = (datetime.now(timezone.utc) - e.last_interaction_date).days if e.last_interaction_date else "never"
+        print(f"  {e.entity_name}: last contact {days} days ago")
+```
+
+### When to use bash instead
+
+For simple 2-command pipelines (fetch an ID, then use it in a second command), a bash script with `xaffinity session start` + `jq` is lighter weight. See the CLI skill's "Multi-Source Tasks" section.
+
 ## Typed IDs (ALWAYS USE)
 
 Prevent mixing up entity types by using typed IDs:
@@ -63,6 +116,9 @@ from affinity.types import (
 person = client.persons.get(PersonId(123))
 company = client.companies.get(CompanyId(456))
 entries = client.lists.entries(ListId(789))
+
+# UserId is a subtype of PersonId — pass it anywhere PersonId is accepted:
+creator = client.persons.get(note.creator_id)  # Works directly, no cast needed
 
 # WRONG - will cause type errors:
 person = client.persons.get(123)  # Don't do this!
@@ -166,7 +222,8 @@ with Affinity.from_env() as client:
     # Notes, reminders, interactions
     client.notes.list() / .create()
     client.reminders.list() / .create()
-    client.interactions.list()
+    client.interactions.list(type=..., start_time=..., end_time=..., person_id=...)
+    client.interactions.iter(type=..., start_time=..., person_id=...)  # auto-chunks, defaults end_time to now
 
     # Rate limits
     snapshot = client.rate_limits.snapshot()

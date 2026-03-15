@@ -169,6 +169,11 @@ class ListService:
             pagination=_safe_model_validate(PaginationInfo, data.get("pagination", {})),
         )
 
+    def get_first(self) -> AffinityList | None:
+        """Get the first list, or None if no lists exist."""
+        page = self.list(limit=1)
+        return page.data[0] if page.data else None
+
     def pages(
         self,
         *,
@@ -611,6 +616,30 @@ class ListEntryService:
             pagination=_safe_model_validate(PaginationInfo, data.get("pagination", {})),
         )
 
+    def get_first(
+        self,
+        *,
+        filter: str | FilterExpression | None = None,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> ListEntryWithEntity | None:
+        """
+        Get the first list entry matching the filter, or None.
+
+        WARNING: List entry filtering is applied client-side (the V2 API
+        silently ignores filter parameters). This means the method may
+        fetch multiple pages before finding a match. If no entry matches,
+        **every page in the list is fetched** before returning None.
+        On large lists (25K+ entries), this can result in hundreds of
+        API calls. A UserWarning is emitted when filter is used.
+
+        For efficient server-side filtering, use saved views via CLI.
+        """
+        return next(
+            self.iter(filter=filter, field_ids=field_ids, field_types=field_types),
+            None,
+        )
+
     def pages(
         self,
         *,
@@ -1041,13 +1070,35 @@ class ListEntryService:
     def get_field_values(
         self,
         entry_id: ListEntryId,
+        *,
+        ids: Sequence[str | AnyFieldId] | None = None,
+        types: Sequence[FieldType] | None = None,
     ) -> FieldValues:
-        """Get all field values for a list entry."""
-        data = self._client.get(f"/lists/{self._list_id}/list-entries/{entry_id}/fields")
-        values = data.get("data", {})
-        if isinstance(values, dict):
-            return _safe_model_validate(FieldValues, values)
-        return _safe_model_validate(FieldValues, {})
+        """Get field values for a list entry.
+
+        Args:
+            entry_id: The list entry ID.
+            ids: Optional field IDs to filter (server-side).
+            types: Optional field types to filter (server-side).
+
+        Returns:
+            FieldValues container with full field objects.
+            Use .get_value(field_id) to extract unwrapped values.
+        """
+        params: dict[str, Any] = {}
+        if ids:
+            params["ids"] = [str(fid) for fid in ids]
+        if types:
+            params["types"] = [ft.value for ft in types]
+        data = self._client.get(
+            f"/lists/{self._list_id}/list-entries/{entry_id}/fields",
+            params=params or None,
+        )
+        # V2 API returns {"data": [{field}, ...], "pagination": {...}}
+        # FieldValues._coerce_from_api converts list -> dict keyed by field ID,
+        # preserving full field objects (id, name, type, value).
+        fields_list = data.get("data", [])
+        return _safe_model_validate(FieldValues, fields_list)
 
     def get_field_value(
         self,
@@ -1200,6 +1251,11 @@ class AsyncListService:
             ],
             pagination=_safe_model_validate(PaginationInfo, data.get("pagination", {})),
         )
+
+    async def get_first(self) -> AffinityList | None:
+        """Get the first list, or None if no lists exist."""
+        page = await self.list(limit=1)
+        return page.data[0] if page.data else None
 
     async def pages(
         self,
@@ -1577,6 +1633,23 @@ class AsyncListEntryService:
             data=entries,
             pagination=_safe_model_validate(PaginationInfo, data.get("pagination", {})),
         )
+
+    async def get_first(
+        self,
+        *,
+        filter: str | FilterExpression | None = None,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> ListEntryWithEntity | None:
+        """
+        Get the first list entry matching the filter, or None.
+
+        See ListEntryService.get_first() for details and caveats about
+        client-side filtering on list entries.
+        """
+        async for entry in self.iter(filter=filter, field_ids=field_ids, field_types=field_types):
+            return entry
+        return None
 
     async def pages(
         self,
@@ -1965,13 +2038,35 @@ class AsyncListEntryService:
     async def get_field_values(
         self,
         entry_id: ListEntryId,
+        *,
+        ids: Sequence[str | AnyFieldId] | None = None,
+        types: Sequence[FieldType] | None = None,
     ) -> FieldValues:
-        """Get all field values for a list entry."""
-        data = await self._client.get(f"/lists/{self._list_id}/list-entries/{entry_id}/fields")
-        values = data.get("data", {})
-        if isinstance(values, dict):
-            return _safe_model_validate(FieldValues, values)
-        return _safe_model_validate(FieldValues, {})
+        """Get field values for a list entry.
+
+        Args:
+            entry_id: The list entry ID.
+            ids: Optional field IDs to filter (server-side).
+            types: Optional field types to filter (server-side).
+
+        Returns:
+            FieldValues container with full field objects.
+            Use .get_value(field_id) to extract unwrapped values.
+        """
+        params: dict[str, Any] = {}
+        if ids:
+            params["ids"] = [str(fid) for fid in ids]
+        if types:
+            params["types"] = [ft.value for ft in types]
+        data = await self._client.get(
+            f"/lists/{self._list_id}/list-entries/{entry_id}/fields",
+            params=params or None,
+        )
+        # V2 API returns {"data": [{field}, ...], "pagination": {...}}
+        # FieldValues._coerce_from_api converts list -> dict keyed by field ID,
+        # preserving full field objects (id, name, type, value).
+        fields_list = data.get("data", [])
+        return _safe_model_validate(FieldValues, fields_list)
 
     async def get_field_value(
         self,

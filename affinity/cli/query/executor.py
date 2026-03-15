@@ -7,12 +7,16 @@ This module is CLI-only and NOT part of the public SDK API.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
+
+import httpx
+import pydantic
 
 from ...exceptions import AuthenticationError, AuthorizationError, NotFoundError
 from ..interaction_utils import resolve_interaction_names_async, transform_interaction_data
@@ -46,8 +50,79 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from affinity import AsyncAffinity
     from affinity.models.pagination import PaginationProgress
+    from affinity.services.v1_only import AsyncInteractionService
 
     from .schema import EntitySchema
+
+from affinity.types import InteractionType
+
+_ALL_INTERACTION_TYPES = [
+    InteractionType.EMAIL,
+    InteractionType.MEETING,
+    InteractionType.CALL,
+    InteractionType.CHAT_MESSAGE,
+]
+_DEFAULT_INTERACTION_LOOKBACK_DAYS = 90
+
+
+async def _fetch_interactions_for_entity(
+    service: AsyncInteractionService,
+    entity_filter: dict[str, Any],
+    *,
+    days: int = _DEFAULT_INTERACTION_LOOKBACK_DAYS,
+    limit: int = 100,
+    semaphore: asyncio.Semaphore | None = None,
+    rate_limiter: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch interactions across all types for a single entity.
+
+    Args:
+        service: AsyncInteractionService instance
+        entity_filter: e.g. {"person_id": PersonId(123)}
+        days: Lookback window (default 90)
+        limit: Max interactions to return
+        semaphore: Optional concurrency limiter
+        rate_limiter: Optional rate limiter
+    """
+    from datetime import datetime, timedelta, timezone
+
+    end_t = datetime.now(timezone.utc)
+    start_t = end_t - timedelta(days=days)
+    results: list[dict[str, Any]] = []
+    for itype in _ALL_INTERACTION_TYPES:
+        if len(results) >= limit:
+            break
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                if semaphore is not None:
+                    await stack.enter_async_context(semaphore)
+                if rate_limiter is not None:
+                    await stack.enter_async_context(rate_limiter)
+                async for i in service.iter(
+                    **entity_filter,
+                    type=itype,
+                    start_time=start_t,
+                    end_time=end_t,
+                ):
+                    results.append(i.model_dump(mode="json", by_alias=True))
+                    if len(results) >= limit:
+                        break
+        except (AuthenticationError, AuthorizationError):
+            raise
+        except (
+            httpx.HTTPStatusError,
+            httpx.TimeoutException,
+            httpx.ConnectError,
+            pydantic.ValidationError,
+        ) as e:
+            logger.warning(
+                "Failed to fetch %s interactions for %s: %s",
+                itype.name,
+                entity_filter,
+                e,
+            )
+            continue
+    return results
 
 
 # =============================================================================
@@ -75,20 +150,10 @@ def _set_nested_value(target: dict[str, Any], path: str, value: Any) -> None:
 
 
 def _extract_person_display_name(data: dict[str, Any]) -> str | None:
-    """Extract display name from a person reference dict.
+    """Extract display name from a person reference dict."""
+    from affinity.field_resolve_utils import resolve_person
 
-    Args:
-        data: Dict with firstName/lastName keys
-
-    Returns:
-        Combined name like "Jane Doe", or None if both empty
-    """
-    first = data.get("firstName", "")
-    last = data.get("lastName", "")
-    first = first.strip() if isinstance(first, str) else ""
-    last = last.strip() if isinstance(last, str) else ""
-    name = f"{first} {last}".strip()
-    return name if name else None
+    return resolve_person(data)
 
 
 def _normalize_list_entry_fields(record: dict[str, Any]) -> dict[str, Any]:
@@ -1103,7 +1168,7 @@ class QueryExecutor:
         # Resolve field names to IDs for listEntries queries (after we know parent IDs)
         # This is only used for the API call, NOT for client-side filtering
         if where_dict is not None and parent_ids:
-            where_dict = await self._resolve_field_names_to_ids(where_dict, parent_ids)
+            where_dict = await self._resolve_field_names_to_ids(where_dict, parent_ids, ctx)
         if not parent_ids:
             # Should never happen - parser validates this
             raise QueryExecutionError(
@@ -1156,10 +1221,14 @@ class QueryExecutor:
 
                 async for page in nested_service.all().pages(**pages_kwargs):
                     for record in page.data:
-                        results.append(record.model_dump(mode="json", by_alias=True))
+                        record_dict = record.model_dump(mode="json", by_alias=True)
+                        record_dict = _normalize_list_entry_fields(record_dict)
+                        results.append(record_dict)
             else:
                 async for record in nested_service.all():
-                    results.append(record.model_dump(mode="json", by_alias=True))
+                    record_dict = record.model_dump(mode="json", by_alias=True)
+                    record_dict = _normalize_list_entry_fields(record_dict)
+                    results.append(record_dict)
 
             return results
 
@@ -1539,8 +1608,11 @@ class QueryExecutor:
                     "by_name": field_map,
                     "all_ids": all_field_ids,
                 }
-            except Exception:
-                # If we can't fetch fields, continue without custom field values
+            except Exception as exc:
+                logger.warning("Failed to fetch field metadata for list %s: %s", list_id, exc)
+                ctx.warnings.append(
+                    f"Could not fetch field metadata (fields.* values will be null): {exc}"
+                )
                 return None
 
         cache = self._field_name_cache[cache_key]
@@ -1634,7 +1706,10 @@ class QueryExecutor:
         return result
 
     async def _resolve_field_names_to_ids(
-        self, where: dict[str, Any], list_ids: list[int]
+        self,
+        where: dict[str, Any],
+        list_ids: list[int],
+        ctx: ExecutionContext,
     ) -> dict[str, Any]:
         """Resolve field name references to field IDs in fields.* paths.
 
@@ -1669,9 +1744,11 @@ class QueryExecutor:
                         if field.name:
                             # Map lowercase name to field ID
                             self._field_name_to_id_cache[field.name.lower()] = str(field.id)
-                except Exception:
-                    # If we can't fetch fields, continue without resolution
-                    pass
+                except Exception as exc:
+                    logger.warning("Failed to fetch field metadata for list %s: %s", list_id, exc)
+                    ctx.warnings.append(
+                        f"Could not fetch field metadata for where clause resolution: {exc}"
+                    )
 
         # Check if this is a fields.* condition
         path = where.get("path", "")
@@ -1691,11 +1768,11 @@ class QueryExecutor:
         result = dict(where)
         if where.get("and"):
             result["and"] = [
-                await self._resolve_field_names_to_ids(c, list_ids) for c in where["and"]
+                await self._resolve_field_names_to_ids(c, list_ids, ctx) for c in where["and"]
             ]
         if where.get("or"):
             result["or"] = [
-                await self._resolve_field_names_to_ids(c, list_ids) for c in where["or"]
+                await self._resolve_field_names_to_ids(c, list_ids, ctx) for c in where["or"]
             ]
 
         return result
@@ -1896,19 +1973,51 @@ class QueryExecutor:
             # Collect all entity IDs
             entity_ids: list[int] = [r["id"] for r in ctx.records if isinstance(r.get("id"), int)]
 
-            for ent_id in entity_ids:
-                try:
-                    filter_kwargs = {rel.filter_field: ent_id}
-                    response = await service.list(**filter_kwargs)
-                    ent_records: list[dict[str, Any]] = []
-                    for item in response.data:
-                        record = item.model_dump(mode="json", by_alias=True)
-                        ent_records.append(record)
-                        included_records.append(record)
-                    parent_mapping[ent_id] = ent_records
-                except Exception:
-                    parent_mapping[ent_id] = []
-                    continue
+            if rel.method_or_service == "interactions":
+                # Extract include config for configurable days/limit
+                include_config = None
+                if ctx.query.include:
+                    for item in ctx.query.include:
+                        if isinstance(item, dict):
+                            for key, val in item.items():
+                                if key == step.relationship:
+                                    from .models import IncludeConfig
+
+                                    include_config = (
+                                        IncludeConfig.model_validate(val) if val else None
+                                    )
+                                    break
+                i_days = (
+                    include_config.days
+                    if include_config and include_config.days
+                    else _DEFAULT_INTERACTION_LOOKBACK_DAYS
+                )
+                i_limit = include_config.limit if include_config and include_config.limit else 100
+                assert rel.filter_field is not None  # schema guarantees this for global_service
+                for ent_id in entity_ids:
+                    i_records = await _fetch_interactions_for_entity(
+                        service,
+                        {rel.filter_field: ent_id},
+                        days=i_days,
+                        limit=i_limit,
+                        rate_limiter=self.rate_limiter,
+                    )
+                    parent_mapping[ent_id] = i_records
+                    included_records.extend(i_records)
+            else:
+                for ent_id in entity_ids:
+                    try:
+                        filter_kwargs = {rel.filter_field: ent_id}
+                        response = await service.list(**filter_kwargs)
+                        ent_records: list[dict[str, Any]] = []
+                        for item in response.data:
+                            record = item.model_dump(mode="json", by_alias=True)  # type: ignore[attr-defined]
+                            ent_records.append(record)
+                            included_records.append(record)
+                        parent_mapping[ent_id] = ent_records
+                    except Exception:
+                        parent_mapping[ent_id] = []
+                        continue
 
         elif rel.fetch_strategy == "list_entry_indirect":
             # For listEntries: fetch related entities via entity associations
@@ -1928,6 +2037,8 @@ class QueryExecutor:
                                 break
 
             # Fetch related entities using the specialized handler
+            # Pass progress callback to emit incremental progress during N+1 operations
+            # This prevents MCP timeout by extending the watchdog timer
             parent_to_related = await self._fetch_list_entry_indirect(
                 ctx.records,
                 target_entity_type,
@@ -1936,6 +2047,7 @@ class QueryExecutor:
                 list_id=await self._resolve_list_id(include_config.list_)
                 if include_config and include_config.list_
                 else None,
+                progress_callback=lambda cur, tot: self.progress.on_step_progress(step, cur, tot),
             )
 
             # Apply where filter if specified
@@ -2338,11 +2450,19 @@ class QueryExecutor:
                         return []
 
                     try:
-                        filter_kwargs = {rel_info.filter_field: record_id}
-                        response = await service.list(**filter_kwargs)
-                        related = [
-                            item.model_dump(mode="json", by_alias=True) for item in response.data
-                        ]
+                        if rel_info.method_or_service == "interactions":
+                            related = await _fetch_interactions_for_entity(
+                                service,
+                                {rel_info.filter_field: record_id},
+                                rate_limiter=self.rate_limiter,
+                            )
+                        else:
+                            filter_kwargs = {rel_info.filter_field: record_id}
+                            response = await service.list(**filter_kwargs)
+                            related = [
+                                item.model_dump(mode="json", by_alias=True)
+                                for item in response.data
+                            ]
                     except (AuthenticationError, AuthorizationError):
                         # Let auth errors propagate - these indicate real problems
                         raise
@@ -2482,6 +2602,7 @@ class QueryExecutor:
         limit: int | None = None,
         days: int | None = None,
         list_id: int | None = None,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> dict[int, list[dict[str, Any]]]:
         """Fetch related entities for list entries based on entityType.
 
@@ -2491,6 +2612,8 @@ class QueryExecutor:
             limit: Max records per entity (for interactions)
             days: Lookback window in days (for interactions)
             list_id: Scope to specific opportunity list (for opportunities)
+            progress_callback: Optional callback(current, total) for progress emission
+                during N+1 operations to prevent MCP timeout
 
         Returns:
             Dict mapping listEntryId -> list of related entity records
@@ -2499,16 +2622,25 @@ class QueryExecutor:
         semaphore = asyncio.Semaphore(50)  # Limit concurrent connections
 
         if target_entity_type == "persons":
-            await self._fetch_persons_for_list_entries(entries, results, semaphore)
+            await self._fetch_persons_for_list_entries(
+                entries, results, semaphore, progress_callback=progress_callback
+            )
         elif target_entity_type == "companies":
-            await self._fetch_companies_for_list_entries(entries, results, semaphore)
+            await self._fetch_companies_for_list_entries(
+                entries, results, semaphore, progress_callback=progress_callback
+            )
         elif target_entity_type == "opportunities":
             await self._fetch_opportunities_for_list_entries(
-                entries, results, semaphore, list_id=list_id
+                entries, results, semaphore, list_id=list_id, progress_callback=progress_callback
             )
         elif target_entity_type == "interactions":
             await self._fetch_interactions_for_list_entries(
-                entries, results, semaphore, limit=limit, days=days
+                entries,
+                results,
+                semaphore,
+                limit=limit,
+                days=days,
+                progress_callback=progress_callback,
             )
 
         return results
@@ -2518,6 +2650,8 @@ class QueryExecutor:
         entries: list[dict[str, Any]],
         results: dict[int, list[dict[str, Any]]],
         semaphore: asyncio.Semaphore,
+        *,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         """Fetch associated persons for list entries."""
         from affinity.types import CompanyId, OpportunityId
@@ -2556,8 +2690,19 @@ class QueryExecutor:
 
             return (entry_id, ids)
 
-        # Phase 1: Parallel fetch all association IDs
-        id_results = await asyncio.gather(*[get_person_ids_for_entry(e) for e in entries])
+        # Phase 1: Parallel fetch all association IDs with incremental progress
+        # Use as_completed to emit progress during N+1 fetches (prevents MCP timeout)
+        total = len(entries)
+        tasks = [asyncio.create_task(get_person_ids_for_entry(e)) for e in entries]
+        id_results: list[tuple[int, list[int]]] = []
+
+        for completed, future in enumerate(asyncio.as_completed(tasks), start=1):
+            result = await future
+            id_results.append(result)
+            # Emit progress every 10 items or at completion to extend MCP timeout
+            if progress_callback and (completed % 10 == 0 or completed == total):
+                progress_callback(completed, total)
+
         entry_to_person_ids = dict(id_results)
 
         # Phase 2: Deduplicate and batch fetch full records
@@ -2577,6 +2722,8 @@ class QueryExecutor:
         entries: list[dict[str, Any]],
         results: dict[int, list[dict[str, Any]]],
         semaphore: asyncio.Semaphore,
+        *,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         """Fetch associated companies for list entries."""
         from affinity.types import OpportunityId, PersonId
@@ -2614,8 +2761,17 @@ class QueryExecutor:
 
             return (entry_id, ids)
 
-        # Same two-phase pattern as persons
-        id_results = await asyncio.gather(*[get_company_ids_for_entry(e) for e in entries])
+        # Same two-phase pattern as persons with incremental progress
+        total = len(entries)
+        tasks = [asyncio.create_task(get_company_ids_for_entry(e)) for e in entries]
+        id_results: list[tuple[int, list[int]]] = []
+
+        for completed, future in enumerate(asyncio.as_completed(tasks), start=1):
+            result = await future
+            id_results.append(result)
+            if progress_callback and (completed % 10 == 0 or completed == total):
+                progress_callback(completed, total)
+
         entry_to_company_ids = dict(id_results)
 
         all_company_ids = list({cid for cids in entry_to_company_ids.values() for cid in cids})
@@ -2638,11 +2794,13 @@ class QueryExecutor:
         semaphore: asyncio.Semaphore,
         *,
         list_id: int | None = None,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         """Fetch associated opportunities for list entries.
 
         Args:
             list_id: If provided, only return opportunities from this specific list.
+            progress_callback: Optional callback(current, total) for progress emission
         """
         from affinity.types import CompanyId, PersonId
 
@@ -2679,8 +2837,17 @@ class QueryExecutor:
 
             return (entry_id, ids)
 
-        # Same two-phase pattern
-        id_results = await asyncio.gather(*[get_opportunity_ids_for_entry(e) for e in entries])
+        # Same two-phase pattern with incremental progress
+        total = len(entries)
+        tasks = [asyncio.create_task(get_opportunity_ids_for_entry(e)) for e in entries]
+        id_results: list[tuple[int, list[int]]] = []
+
+        for completed, future in enumerate(asyncio.as_completed(tasks), start=1):
+            result = await future
+            id_results.append(result)
+            if progress_callback and (completed % 10 == 0 or completed == total):
+                progress_callback(completed, total)
+
         entry_to_opp_ids = dict(id_results)
 
         all_opp_ids = list({oid for oids in entry_to_opp_ids.values() for oid in oids})
@@ -2707,24 +2874,19 @@ class QueryExecutor:
         *,
         limit: int | None = None,
         days: int | None = None,
+        progress_callback: Callable[[int, int | None], None] | None = None,
     ) -> None:
         """Fetch interactions for list entries.
 
         Args:
             limit: Max interactions per entity (default 100)
             days: Lookback window in days (default 90)
+            progress_callback: Optional callback(current, total) for progress emission
         """
-        from datetime import datetime, timedelta, timezone
-
         from affinity.types import CompanyId, OpportunityId, PersonId
 
-        from ..date_utils import chunk_date_range
-
         effective_limit = limit if limit is not None else 100
-        effective_days = days if days is not None else 90
-
-        end_time = datetime.now(timezone.utc)
-        start_time = end_time - timedelta(days=effective_days)
+        effective_days = days if days is not None else _DEFAULT_INTERACTION_LOOKBACK_DAYS
 
         async def get_interactions_for_entry(
             entry: dict[str, Any],
@@ -2747,33 +2909,27 @@ class QueryExecutor:
             else:
                 return (entry_id, [])
 
-            interactions: list[dict[str, Any]] = []
-            count = 0
-
-            # Use chunk_date_range() to handle ranges > 365 days
-            for chunk_start, chunk_end in chunk_date_range(start_time, end_time):
-                if count >= effective_limit:
-                    break
-                async with semaphore, self.rate_limiter:
-                    try:
-                        async for i in self.client.interactions.iter(
-                            **base_kwargs,
-                            start_time=chunk_start,
-                            end_time=chunk_end,
-                        ):
-                            interactions.append(i.model_dump(mode="json", by_alias=True))
-                            count += 1
-                            if count >= effective_limit:
-                                break
-                    except Exception:
-                        break  # Stop on error
-
+            interactions = await _fetch_interactions_for_entity(
+                self.client.interactions,
+                base_kwargs,
+                days=effective_days,
+                limit=effective_limit,
+                semaphore=semaphore,
+                rate_limiter=self.rate_limiter,
+            )
             return (entry_id, interactions)
 
-        # Direct fetch (no ID→record indirection needed for interactions)
-        interaction_results = await asyncio.gather(
-            *[get_interactions_for_entry(e) for e in entries]
-        )
+        # Direct fetch with incremental progress (no ID→record indirection needed)
+        total = len(entries)
+        tasks = [asyncio.create_task(get_interactions_for_entry(e)) for e in entries]
+        interaction_results: list[tuple[int, list[dict[str, Any]]]] = []
+
+        for completed, future in enumerate(asyncio.as_completed(tasks), start=1):
+            result = await future
+            interaction_results.append(result)
+            if progress_callback and (completed % 10 == 0 or completed == total):
+                progress_callback(completed, total)
+
         results.update(dict(interaction_results))
 
     def _execute_aggregate(self, _step: PlanStep, ctx: ExecutionContext) -> None:
@@ -2805,26 +2961,69 @@ class QueryExecutor:
         if order_by is None:
             return
 
+        # Wrapper class for descending sort on non-numeric values
+        class _Descending:
+            """Wrapper that inverts comparison for descending sort."""
+
+            __slots__ = ("value",)
+            __hash__ = None  # type: ignore[assignment]  # Unhashable since we define __eq__
+
+            def __init__(self, value: Any) -> None:
+                self.value = value
+
+            def __lt__(self, other: object) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                # Handle None values - None should sort after non-None
+                if self.value is None and other.value is None:
+                    return False
+                if self.value is None:
+                    return False  # None is not less than anything (sorts last)
+                if other.value is None:
+                    return True  # Non-None is less than None (comes first)
+                return bool(self.value > other.value)
+
+            def __gt__(self, other: object) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                if self.value is None and other.value is None:
+                    return False
+                if self.value is None:
+                    return True  # None is greater (sorts last)
+                if other.value is None:
+                    return False  # Non-None is not greater than None
+                return bool(self.value < other.value)
+
+            def __eq__(self, other: object) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                return bool(self.value == other.value)
+
+            def __le__(self, other: object) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                return not self.__gt__(other)
+
+            def __ge__(self, other: object) -> bool:
+                if not isinstance(other, _Descending):
+                    return NotImplemented  # type: ignore[return-value]
+                return not self.__lt__(other)
+
         # Build sort key function
         def sort_key(record: dict[str, Any]) -> tuple[Any, ...]:
             keys: list[Any] = []
             for order in order_by:
                 value = resolve_field_path(record, order.field) if order.field else None
 
-                # Handle None values (sort to end)
-                if value is None:
-                    if order.direction == "asc":
+                if order.direction == "asc":
+                    # Ascending: None sorts to end via tuple ordering
+                    if value is None:
                         keys.append((1, None))
                     else:
-                        keys.append((0, None))
-                elif order.direction == "asc":
-                    keys.append((0, value))
-                else:
-                    # Negate for desc, but handle non-numeric
-                    try:
-                        keys.append((0, -value))
-                    except TypeError:
                         keys.append((0, value))
+                else:
+                    # Descending: wrap ALL values in _Descending for consistent comparison
+                    keys.append((0, _Descending(value)))
 
             return tuple(keys)
 

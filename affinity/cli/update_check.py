@@ -56,10 +56,6 @@ class UpdateInfo:
         )
         return now - checked > CHECK_INTERVAL
 
-    def matches_installed_version(self) -> bool:
-        """Check if cache was created for current installed version."""
-        return self.current_version == affinity.__version__
-
     def should_notify(self) -> bool:
         """Return True if notification hasn't been shown recently."""
         if self.last_notified_at is None:
@@ -140,9 +136,24 @@ def get_cached_update_info(cache_path: Path) -> UpdateInfo | None:
                 datetime.fromisoformat(last_notified_raw) if last_notified_raw else None
             ),
         )
-        # Invalidate cache if user upgraded since last check
-        if not info.matches_installed_version():
-            return None
+        # Version-aware cache handling
+        installed = affinity.__version__
+        if info.current_version != installed:
+            try:
+                if Version(info.current_version) < Version(installed):
+                    # User upgraded — clear update flag, keep cache metadata
+                    return UpdateInfo(
+                        current_version=installed,
+                        latest_version=info.latest_version,
+                        checked_at=info.checked_at,
+                        update_available=False,
+                        last_notified_at=None,
+                    )
+                else:
+                    # Cached version > installed — downgraded or different install
+                    return None
+            except Exception:
+                return None  # Invalid version strings, invalidate
         return info
     except Exception:
         return None
@@ -361,17 +372,19 @@ def check_for_update_interactive(state_dir: Path) -> None:
 
         # Trigger background refresh if cache is stale
         if cached.is_stale():
-            trigger_background_update_check(state_dir)
+            trigger_background_update_check(state_dir, current_version=affinity.__version__)
     else:
         # No cache - trigger background check for next time
-        trigger_background_update_check(state_dir)
+        trigger_background_update_check(state_dir, current_version=affinity.__version__)
 
 
-def trigger_background_update_check(state_dir: Path) -> None:
+def trigger_background_update_check(state_dir: Path, *, current_version: str | None = None) -> None:
     """Spawn background process to update cache.
 
     Args:
         state_dir: Platform-appropriate state directory from CliPaths.
+        current_version: Version string to pass to worker. Falls back to
+            affinity.__version__ if not provided (backward compat).
     """
     # Don't spawn if another check is already running
     lock = acquire_update_lock(state_dir)
@@ -384,6 +397,8 @@ def trigger_background_update_check(state_dir: Path) -> None:
 
     cache_path = state_dir / "update_check.json"
 
+    version = current_version or affinity.__version__
+
     # Build subprocess arguments
     cmd = [
         sys.executable,
@@ -391,6 +406,8 @@ def trigger_background_update_check(state_dir: Path) -> None:
         "affinity.cli._update_worker",
         "--cache-path",
         str(cache_path),
+        "--current-version",
+        version,
     ]
 
     try:

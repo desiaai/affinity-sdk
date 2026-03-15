@@ -201,14 +201,42 @@ def test_list_service_list_all_get_fields_and_create_entry_helpers() -> None:
         ):
             nonlocal field_values_calls
             field_values_calls += 1
-            if field_values_calls == 1:
-                return httpx.Response(200, json={"data": {}}, request=request)
-            return httpx.Response(200, json={"data": []}, request=request)
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "field-1",
+                            "name": "Owner",
+                            "type": "list",
+                            "value": {
+                                "data": {"id": 42, "firstName": "Jane", "lastName": "Doe"},
+                                "type": "person",
+                            },
+                        }
+                    ],
+                    "pagination": {"prevUrl": None, "nextUrl": None},
+                },
+                request=request,
+            )
 
         if request.method == "GET" and url == httpx.URL(
             "https://v2.example/v2/lists/10/list-entries/5/fields/field-1"
         ):
-            return httpx.Response(200, json={"value": "x"}, request=request)
+            return httpx.Response(
+                200,
+                json={
+                    "id": "field-1",
+                    "name": "Owner",
+                    "type": "list",
+                    "enrichmentSource": None,
+                    "value": {
+                        "data": {"id": 42, "firstName": "Jane", "lastName": "Doe"},
+                        "type": "person",
+                    },
+                },
+                request=request,
+            )
 
         if request.method == "POST" and url == httpx.URL(
             "https://v2.example/v2/lists/10/list-entries/5/fields/field-1"
@@ -268,9 +296,22 @@ def test_list_service_list_all_get_fields_and_create_entry_helpers() -> None:
 
         assert entries.delete(ListEntryId(5)) is True
 
+        fv = entries.get_field_values(ListEntryId(5))
+        assert fv.requested is True
+        # Full field object preserved in .data
+        field_obj = fv.get("field-1")
+        assert field_obj is not None
+        assert field_obj["id"] == "field-1"
+        assert field_obj["value"]["type"] == "person"
+        # get_value() unwraps to raw data
+        assert fv.get_value("field-1") == {"id": 42, "firstName": "Jane", "lastName": "Doe"}
+        # Second call still works (cache hit path)
         assert entries.get_field_values(ListEntryId(5)).requested is True
-        assert entries.get_field_values(ListEntryId(5)).requested is True
-        assert entries.get_field_value(ListEntryId(5), "field-1") == "x"
+        assert entries.get_field_value(ListEntryId(5), "field-1") == {
+            "id": 42,
+            "firstName": "Jane",
+            "lastName": "Doe",
+        }
         assert entries.update_field_value(ListEntryId(5), "field-1", "y").requested is True
         assert entries.batch_update_fields(ListEntryId(5), {"field-1": "y"}).all_successful is True
     finally:
@@ -904,12 +945,36 @@ async def test_async_list_service_create_fields_and_entry_write_ops() -> None:
         if request.method == "GET" and url == httpx.URL(
             "https://v2.example/v2/lists/11/list-entries/99/fields"
         ):
-            return httpx.Response(200, json={"data": {"field-1": "x"}}, request=request)
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "field-1",
+                            "name": "Status",
+                            "type": "list",
+                            "value": {"data": "x", "type": "text"},
+                        }
+                    ],
+                    "pagination": {"prevUrl": None, "nextUrl": None},
+                },
+                request=request,
+            )
 
         if request.method == "GET" and url == httpx.URL(
             "https://v2.example/v2/lists/11/list-entries/99/fields/field-1"
         ):
-            return httpx.Response(200, json={"value": "x"}, request=request)
+            return httpx.Response(
+                200,
+                json={
+                    "id": "field-1",
+                    "name": "Status",
+                    "type": "list",
+                    "enrichmentSource": None,
+                    "value": {"data": "x", "type": "text"},
+                },
+                request=request,
+            )
 
         if request.method == "POST" and url == httpx.URL(
             "https://v2.example/v2/lists/11/list-entries/99/fields/field-1"
@@ -984,7 +1049,9 @@ async def test_async_list_service_create_fields_and_entry_write_ops() -> None:
         assert created_opportunity.id == ListEntryId(100)
 
         assert await entries.delete(ListEntryId(99)) is True
-        assert (await entries.get_field_values(ListEntryId(99))).requested is True
+        fv = await entries.get_field_values(ListEntryId(99))
+        assert fv.requested is True
+        assert fv.get_value("field-1") == "x"
         assert await entries.get_field_value(ListEntryId(99), "field-1") == "x"
         assert (await entries.update_field_value(ListEntryId(99), "field-1", "y")).requested is True
         assert (

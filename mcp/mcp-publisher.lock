@@ -1,0 +1,4 @@
+# mcp-publisher.lock - Pin mcp-publisher CLI version for MCP Registry publishing
+# Source this file in bash scripts: source mcp/mcp-publisher.lock
+# Update: check https://github.com/modelcontextprotocol/registry/releases
+MCP_PUBLISHER_VERSION=v1.4.1

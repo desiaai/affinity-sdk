@@ -399,9 +399,9 @@ This installs the MCP server automatically. See [Claude Code plugins](../guides/
 
 This server is distributed as an [MCPB bundle](https://github.com/modelcontextprotocol/mcpb) for one-click installation. Download from [GitHub Releases](https://github.com/yaniv-golan/affinity-sdk/releases).
 
-### MCP Registry (Planned)
+### MCP Registry
 
-We plan to register this server with the [MCP Registry](https://registry.modelcontextprotocol.io/)—the official catalog for MCP servers.
+This server is published on the [MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.yaniv-golan/xaffinity-mcp`. The registry entry is updated automatically on every MCP release via CI.
 
 ### Future: .well-known Discovery
 

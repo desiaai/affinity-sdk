@@ -88,8 +88,8 @@ from .pipeline import (
 
 logger = logging.getLogger("affinity_sdk")
 
-RepeatableQueryParam: TypeAlias = Literal["fieldIds", "fieldTypes", "ids"]
-REPEATABLE_QUERY_PARAMS: frozenset[str] = frozenset({"fieldIds", "fieldTypes", "ids"})
+RepeatableQueryParam: TypeAlias = Literal["fieldIds", "fieldTypes", "ids", "types"]
+REPEATABLE_QUERY_PARAMS: frozenset[str] = frozenset({"fieldIds", "fieldTypes", "ids", "types"})
 
 _RETRYABLE_METHODS: frozenset[str] = frozenset({"GET", "HEAD"})
 _WRITE_METHODS: frozenset[str] = frozenset({"POST", "PUT", "PATCH", "DELETE"})

@@ -1031,3 +1031,72 @@ class TestIncludeEstimateWithFilter:
         expand_step = next(s for s in plan.steps if s.operation == "expand")
         # Should estimate 5 API calls (limit), not 2-3 (limit * 0.5 selectivity)
         assert expand_step.estimated_api_calls == 5
+
+
+class TestOrderByEstimation:
+    """Tests for orderBy requiring full fetch estimation.
+
+    Regression tests for bug where limit was used as API call estimate
+    even when orderBy requires fetching all records first.
+    """
+
+    @pytest.fixture
+    def planner(self) -> QueryPlanner:
+        """Create a planner for testing."""
+        return create_planner(max_records=10000, concurrency=10)
+
+    def test_orderby_without_filter_estimates_full_scan(self, planner: QueryPlanner) -> None:
+        """Query with orderBy but no filter estimates full scan.
+
+        Even with limit: 10, orderBy requires fetching all records first,
+        so API call estimate should be based on full entity count, not limit.
+        """
+        result = parse_query(
+            {
+                "from": "persons",
+                "orderBy": [{"field": "lastName", "direction": "desc"}],
+                "limit": 10,
+            }
+        )
+        plan = planner.plan(result.query)
+
+        fetch_step = plan.steps[0]
+        # Should estimate full scan (5000 persons / 100 per page = 50 API calls)
+        # Not limit-based (10 records / 100 per page = 1 API call)
+        assert fetch_step.estimated_api_calls == 50
+        assert "full scan for sort" in fetch_step.description
+
+    def test_orderby_with_filter_estimates_full_scan(self, planner: QueryPlanner) -> None:
+        """Query with orderBy and filter estimates full scan.
+
+        orderBy requires fetching all records matching the filter first,
+        so API call estimate should be based on full entity count, not limit.
+        """
+        result = parse_query(
+            {
+                "from": "persons",
+                "where": {"path": "email", "op": "contains", "value": "@acme.com"},
+                "orderBy": [{"field": "lastName", "direction": "desc"}],
+                "limit": 10,
+            }
+        )
+        plan = planner.plan(result.query)
+
+        fetch_step = plan.steps[0]
+        # Should estimate full scan (5000 persons / 100 per page = 50 API calls)
+        # Not limit-based (10 * 2 = 20 records / 100 per page = 1 API call)
+        assert fetch_step.estimated_api_calls == 50
+
+    def test_no_orderby_uses_limit_estimate(self, planner: QueryPlanner) -> None:
+        """Query without orderBy uses limit for efficient estimation."""
+        result = parse_query(
+            {
+                "from": "persons",
+                "limit": 10,
+            }
+        )
+        plan = planner.plan(result.query)
+
+        fetch_step = plan.steps[0]
+        # Without orderBy, can use limit directly (10 records / 100 per page = 1 API call)
+        assert fetch_step.estimated_api_calls == 1

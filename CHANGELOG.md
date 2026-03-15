@@ -5,7 +5,375 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.8.0] - 2026-03-10
+
+### Highlights
+
+`entry field --get` now returns resolved person and company objects (with `firstName`, `lastName`, `primaryEmailAddress`, etc.) instead of raw integer IDs. This matches the behavior of `list export` and provides a consistent, AI-agent-friendly experience. Under the hood, the command switched from V1 to V2 API.
+
+### CLI Plugin 1.6.1
+
+#### Added
+- Skill: documented file commands (`company files`, `person files`, `opportunity files`) with `ls`, `download`, `read`, `upload` subcommands — prevents unnecessary fallback to raw v1 API calls
+- Skill: added file commands to Quick Reference table
+
+### Changed
+- **Breaking:** `entry field --get` output for person/company reference fields now returns resolved objects instead of raw integer IDs. Scripts that parse the integer ID should update to read from the resolved object.
+- `entry field --get` now uses the V2 API (`/v2/lists/{listId}/list-entries/{entryId}/fields`) instead of V1 `field_values.list()`
+
+### Fixed
+- `ListEntryService.get_field_values()` (sync and async) now correctly parses V2 API list response format — previously returned empty results due to dict/list type mismatch
+- Added `types` to `REPEATABLE_QUERY_PARAMS` so the V2 fields endpoint `types` filter parameter is correctly encoded
+- `FieldValues._coerce_from_api` no longer double-wraps dicts that are already in `{requested, data}` format — fixes `fields.*` returning null after round-trip serialization
+- Query executor now warns (via `ctx.warnings`) when field metadata fetch fails instead of silently returning null for all `fields.*` values
+- Query executor now warns when field name resolution fails in `where` clauses instead of silently skipping resolution
+- Multi-parent fetch path now normalizes list entry fields — `fields.*` in `select` works correctly when query spans multiple parent lists
+
+## [1.7.3] - 2026-03-08
+
+### Highlights
+
+`UserId` is now a subtype of `PersonId`, reflecting that workspace users are internal persons in Affinity's data model. Code that receives a `UserId` (e.g., `Note.creator_id`) can now pass it directly to any API accepting `PersonId` — no casting required.
+
+### Changed
+- `UserId` now extends `PersonId` instead of `IntId` — `isinstance(UserId(1), PersonId)` is now `True`. This is an intentional runtime behavior change: workspace users are internal persons in Affinity's data model. Code that used `isinstance` to distinguish users from persons should use `person.type == PersonType.INTERNAL` instead.
+- Simplified internal casts that previously converted `UserId` → `int` → `PersonId`
+
+### Documentation
+- data-model.md: clarified that user IDs and person IDs share the same ID space
+
+## [1.7.2] - 2026-03-03
+
+### Highlights
+
+The xaffinity CLI plugin's SessionStart hook no longer runs `pip install` on every container start. Installation is deferred to first actual use via a self-installing wrapper, cutting session startup from ~30s to <1s in ephemeral environments like Cowork. Skill descriptions now display correctly in the Claude Code UI. Also documents two Affinity API limitations discovered via support: interaction entity association and enriched field constraints.
+
+### CLI Plugin 1.6.0
+
+#### Added
+- **Lazy install**: SessionStart hook now drops a lightweight self-installing wrapper instead of running `pip install` unconditionally. The wrapper defers installation to first actual xaffinity use, with mkdir-based locking for concurrent safety, a marker file for install failure detection, and a 45s wait timeout for concurrent invocations.
+- **PreToolUse hook**: Install-failure detection via `$HOME/.xaffinity-install-status` marker — blocks commands with a clear error when pip install failed, instead of cryptic failures.
+- **PreToolUse hook**: Lazy session cache start — `xaffinity session start` is triggered on first xaffinity command instead of at session start, with `CLAUDE_ENV_FILE` persistence.
+
+#### Changed
+- SessionStart timeout reduced from 60s to 10s (hook is now lightweight)
+- PreToolUse Bash timeout increased from 10s to 60s (accommodates pip install via wrapper on first use)
+- SessionStart status message updated to "Preparing Affinity CLI environment..."
+
+#### Fixed
+- Skill YAML frontmatter: replaced multi-line `>` scalar with single-line description (Claude Code couldn't parse folded scalars, showing `>` instead of the description)
+- Skill: updated session cache documentation to reflect lazy initialization
+
+#### Documentation
+- Skill: documented that interactions cannot be associated with companies/opportunities via API (UI's "Also add to" feature has no API equivalent)
+- Skill: documented that "Current Organization" is read-only via API and "Current Job Title" requires a separate `field update` after person creation
+
+### SDK Plugin 1.5.5
+
+#### Fixed
+- Skill YAML frontmatter: replaced multi-line `>` scalar with single-line description (same parsing fix as CLI plugin)
+
+### Documentation
+- Data model: documented interaction entity association limitation and enriched field constraints (Current Organization, Current Job Title)
+
+## [1.7.1] - 2026-03-01
+
+### Highlights
+
+Plugin skills now guide agents to consolidate multi-source CRM queries into single scripts instead of running separate commands that dump raw JSON into the conversation. The CLI plugin also auto-starts session caching at session begin, so metadata is shared across all commands without manual setup.
+
+### CLI Plugin 1.5.6
+
+#### Added
+- Skill: "Multi-Source Tasks" section guiding agents to write consolidated bash scripts (with session cache + jq) instead of running separate CLI commands that dump raw JSON into context
+- Skill: "Extract only what you need" guidance with jq examples for single-command output filtering
+- Skill: session cache fallback instruction for environments without automatic setup
+- SessionStart hook: automatic session cache initialization (`xaffinity session start`) with `CLAUDE_ENV_FILE` persistence for Cowork
+
+### SDK Plugin 1.5.4
+
+#### Added
+- Skill: "Multi-Source Tasks: Output Only the Summary" section guiding agents to print concise summaries instead of raw `model_dump_json()` output when combining multiple data sources
+
+## [1.7.0] - 2026-02-21
+
+### Highlights
+
+New `field history-bulk` command fetches field change history across an entire list in one shot — useful for pipeline stage analysis, funnel conversion, and time-in-stage metrics. Also fixes `--dotenv` to search upward for `.env` files (matching standard dotenv behavior) and hardens the PreToolUse hook with a three-tier API key check.
+
+### Added
+- **CLI**: `field history-bulk` command for batch field change history across lists. Supports `--list-id` (with `--all`/`--max-results` bounding), `--list-entry-ids` for specific entries, `--action-type` filtering, `--dry-run` for API cost estimation, and concurrent fetching via `XAFFINITY_CONCURRENCY` env var. Partial failures are reported as warnings without blocking successful entries.
+- **CLI**: `--list` alias for `--list-id` on `field ls` and `field history-bulk` commands (LLM-friendly shorthand).
+- **MCP Plugin**: Pipeline history analysis skill (`pipeline-history`) with 5-step workflow: identify status field, export current state, dry-run estimate, fetch history, analyze transitions.
+
+### Fixed
+- **CLI**: `--dotenv` now searches upward for `.env` files using `find_dotenv(usecwd=True)`, matching standard python-dotenv behavior. Previously only checked the current working directory, which failed in Cowork VM sessions where the working directory differs from the `.env` location.
+- **CLI Plugin**: PreToolUse hook (`pre-xaffinity.sh`) now uses three-tier API key detection: (1) `AFFINITY_API_KEY` env var, (2) `--dotenv` check-key, (3) plain check-key (config.toml). Previously only checked the env var, blocking commands when the key was configured via `.env` or config file.
+
+### Documentation
+- Added `list export --json` output structure documentation to data model resource (`field` key details, `--field`/`--field-type` requirement).
+- Added `field history-bulk` to MCP command registry for LLM discoverability.
+- Added field change history section to data model resource.
+
+### CLI Plugin 1.5.5
+
+#### Fixed
+- PreToolUse hook: three-tier API key detection (env var → dotenv → config.toml)
+
+### MCP Plugin 1.19.0
+
+#### Added
+- Pipeline history analysis skill for deal stage transition workflows
+
+## [1.6.2] - 2026-02-17
+
+### Highlights
+
+Update notifications now work reliably. Previously, having multiple Python environments (e.g., dev virtualenv + system install) could silently poison the update cache, and the first `config update-check` run always said "never checked" instead of just checking.
+
+### Fixed
+- **CLI**: `config update-check` now checks PyPI inline when cache is missing or stale, instead of showing "never checked"
+- **CLI**: Background update worker now receives version from spawning process, fixing version mismatch when multiple Python environments share a cache
+- **CLI**: Smarter cache invalidation — upgrading no longer discards the cache; it adapts it
+
+## [1.6.1] - 2026-02-16
+
+### Highlights
+
+`config check-key --env-file <path>` now correctly reads the specified file instead of only looking in the current directory. Fixes key discovery in Cowork VM sessions where the `.env` is on a mounted path.
+
+### Fixed
+- **CLI**: `config check-key` ignored `--env-file` flag — always checked `CWD/.env` instead of the user-provided path
+
+## [1.6.0] - 2026-02-16
+
+### Highlights
+
+New `--include-me` flag for `interaction create` auto-includes your person ID. Also fixes field writes for person/company multi-value fields -- entity IDs are now wrapped correctly for the V2 API, and `--append` properly merges instead of replacing.
+
+### Added
+- **CLI**: `interaction create --include-me` flag to auto-include current user's person ID via whoami
+- **CLI**: Enhanced validation error hint for interaction person_ids constraint (internal/external requirement)
+
+### Changed
+- Added interaction create guidance to CLI plugin skill
+- Added interaction create examples to MCP data model resource
+
+### Fixed
+- **CLI**: Person/company field writes (`--set`, `--append`) now correctly wrap entity IDs in `{"id": <int>}` for the V2 API. Previously sent raw integers, causing `validation_error: value at /value/data is not null`.
+- **CLI**: `--append` on `person-multi`/`company-multi` fields now merges with existing values instead of silently replacing them (same fix already existed for `dropdown-multi`).
+- **CLI**: Repeated `--append` on the same multi-value field (e.g., `--append Tags A --append Tags B`) now aggregates into a single write, preventing the second write from overwriting the first.
+- **CLI**: V1 API `allows_multiple` promotion now applies to `person` and `company` field types (previously only `dropdown` was promoted to its `-multi` variant).
+- MCP command registry: corrected `--participants` to `--person-id` for `interaction create`
+
+## Plugin Releases — 2026-02-15
+
+Plugin versions are now independent from the SDK version (see `VERSIONING.md`).
+
+### CLI Plugin 1.5.3
+
+#### Changed
+- Plugin versions are now independent from SDK version
+
+#### Fixed
+- **Security**: SessionStart hook no longer exports `AFFINITY_API_KEY` to the environment. The key stays in `.env` and is read per-command via `--dotenv`, preventing the LLM from accessing it via `env` or `echo $AFFINITY_API_KEY`.
+
+### SDK Plugin 1.5.3
+
+#### Changed
+- Rewrote `affinity-python-sdk` skill description following Anthropic skills guide formula
+
+### MCP Plugin 1.18.1
+
+#### Changed
+- Rewrote `query-language` SKILL.md (861→293 lines) with progressive disclosure; extracted detail to 4 reference files
+- Updated `affinity-mcp-workflows` skill description following guide formula
+
+## [1.5.2] - 2026-02-14
+
+### Highlights
+
+Plugin improvements for Claude Code and Cowork: automatic environment setup via SessionStart hook, API key protection via `.env` read guard, and clearer plugin names in marketplace listings.
+
+### Added
+- CLI Plugin: SessionStart hook (`session-setup.sh`) for Cowork bootstrap — installs xaffinity, sets PATH, loads API key from `.env`
+- CLI Plugin: PreToolUse/Read guard (`guard-env-read.sh`) blocks reading `.env` files to prevent API key exposure in conversation
+- CLI Plugin: Query command reference (`references/query-guide.md`)
+- MCP Plugin: Query language reference files (`references/filter-operators.md`, `quantifiers.md`, `include-expand.md`, `output-formats.md`)
+
+### Changed
+- Marketplace: Renamed plugins from generic "sdk"/"cli"/"mcp" to "Affinity CRM SDK (unofficial)", "Affinity CRM CLI (xaffinity, unofficial)", "Affinity CRM MCP (unofficial)" for clarity in plugin lists.
+- CLI Plugin: Rewrote skill description following Anthropic skills guide formula
+- MCP Plugin: Rewrote `query-language` SKILL.md (861→293 lines) with progressive disclosure; extracted detail to `references/`
+- MCP Plugin: Updated `affinity-mcp-workflows` skill description following guide formula
+- SDK Plugin: Updated `affinity-python-sdk` skill description following guide formula
+
+### Removed
+- CLI Plugin: Removed `/affinity-help` command (redundant — CLI skill auto-triggers on relevant prompts)
+
+### Fixed
+- CLI Plugin: `.env` parsing now handles quoted values and CRLF line endings
+- CLI Plugin: SessionStart hook writes to `CLAUDE_ENV_FILE` are idempotent (no duplicate lines on re-run)
+
+## [1.5.1] - 2026-02-12
+
+### Highlights
+
+Fixes writing to multi-select dropdown fields. `--set` and `--append` now correctly handle the array format required by the API, and `--append` properly merges with existing selections instead of replacing them.
+
+### Fixed
+- CLI: `--set` and `--append` now work correctly for dropdown-multi fields when V1 API returns `value_type="dropdown"` with `allows_multiple=True`. Previously, `resolve_dropdown_value` only checked `value_type` (not `allows_multiple`) to determine the payload format, sending `{"dropdownOptionId": ID}` instead of `[{"dropdownOptionId": ID}]`.
+- CLI: `--append` for dropdown-multi fields now merges with existing values instead of replacing them. The V2 API replaces the entire option array on POST, so `--append` now reads existing selections, adds the new option (deduplicating), and sends the combined array.
+
+## [1.5.0] - 2026-02-11
+
+### Highlights
+
+Interaction queries are now much more robust. Date ranges are validated up front, ranges over 1 year are auto-chunked seamlessly, and mixing naive/timezone-aware datetimes is caught with a clear error. **Breaking:** `InteractionService.list()` now requires `start_time`, `end_time`, and an entity ID -- callers already getting 422 errors will now get a clear SDK-level message instead.
+
+### Changed
+- **Breaking:** `InteractionService.list()` and `AsyncInteractionService.list()` now require `start_time`, `end_time`, and at least one entity ID (`person_id`, `company_id`, or `opportunity_id`). Previously these were optional, but the API always rejected calls without them (422). Callers that were passing `None` for these parameters were already getting API errors; this change surfaces the requirement at the SDK level with clear error messages.
+- `InteractionService.list()` now validates date ranges: `start_time` must be before `end_time`, and the range must not exceed 365 days.
+
+### Added
+- SDK: `InteractionService.iter()` and `AsyncInteractionService.iter()` now automatically chunk date ranges exceeding 365 days. Large ranges are split into <=365-day chunks with synthetic cursors bridging them, making iteration seamless.
+- SDK: `iter()` defaults `end_time` to `datetime.now(timezone.utc)` when not provided, so callers only need to specify `start_time`.
+- SDK: Timezone consistency validation — mixing naive and timezone-aware datetimes raises `ValueError` with guidance instead of a raw `TypeError`.
+- SDK: `_chunk_date_range()` utility for splitting date ranges into API-compatible chunks.
+- CLI: Query executor now properly fetches interactions for `include` and `expand` operations. Previously, these paths called `interactions.list()` without required `type`/date parameters and silently returned empty results.
+
+### Fixed
+- SDK: Fixed falsy truthiness bugs in `InteractionService.list()` where `PersonId(0)`, `CompanyId(0)`, `page_size=0`, and empty `page_token=""` were incorrectly dropped. Changed `if x:` to `if x is not None:` for all optional parameters.
+
+## [1.4.1] - 2026-02-11
+
+### Highlights
+
+CLI errors from invalid commands or options now produce proper JSON error envelopes when `--json` is active, fixing broken downstream JSON parsers.
+
+### Fixed
+- CLI: Click-level errors (unknown commands, invalid options) now emit a proper JSON error envelope (`{"ok": false, "error": {...}}`) when `--json` or `--output json` is active. Previously, stdout was empty and only plain text went to stderr, breaking downstream JSON parsers.
+- CLI: `normalize_exception()` now handles `click.UsageError` (→ `usage_error`, exit code 2) and `click.ClickException` (→ `error`, exit code from exception) instead of misclassifying them as `internal_error`.
+
+## [1.4.0] - 2026-02-10
+
+### Highlights
+
+`FieldResolver` now resolves all value types to human-readable text -- not just dropdowns, but also persons, companies, locations, and interactions. Dropdown fields return rich `DropdownOption` objects with `.text`, `.rank`, and `.color`. **Breaking:** `get_value()` returns `DropdownOption` instead of raw IDs, and `resolve_dropdowns` parameter is replaced by `ResolveMode`.
+
+### Changed
+- **Breaking:** `FieldValues.get_value()` now returns `DropdownOption` objects for dropdown/ranked-dropdown fields instead of raw `int` IDs. The `DropdownOption` has `.id`, `.text`, `.rank`, and `.color` attributes. This applies to all dropdown value types (`dropdown`, `ranked-dropdown`, `dropdown-multi`).
+- **Breaking:** Removed `FieldType.LIST_SPECIFIC`. Use `FieldType.LIST` instead. The V2 API uses `"list"` uniformly; `"list-specific"` was never a valid V2 value.
+- **Breaking:** `FieldResolver.get()` parameter `resolve_dropdowns: bool` replaced with `resolve: ResolveMode` (`ResolveMode.RAW` or `ResolveMode.TEXT`). `ResolveMode.TEXT` resolves dropdowns, persons, companies, and locations to human-readable strings.
+
+### Added
+- SDK: `ResolveMode` enum (`RAW`, `TEXT`) for controlling `FieldResolver` value resolution.
+- SDK: `ResolveMode.TEXT` now resolves person, company, location, and interaction fields to human-readable strings (not just dropdowns).
+- SDK: `FieldResolver` supports source-qualified field names (`"dealroom:Description"`) for disambiguating enrichment fields with the same display name. Ambiguous bare names emit a one-time warning at access time.
+- SDK: `validate_entity_field_types()` raises `ValueError` when `FieldType.LIST` is passed to company/person endpoints (which only accept `ENRICHED`, `GLOBAL`, `RELATIONSHIP_INTELLIGENCE`).
+- SDK: `DropdownOption.color` now accepts both `int` (V1) and `str` (V2) values.
+
+### Fixed
+- SDK: `FieldValues._extract_value()` now correctly recurses through `{"data": {...}}` envelopes for dropdown values, fixing ranked-dropdown and dropdown-multi extraction that previously returned the raw envelope dict.
+- SDK: Dropdown text resolution now works without V1 field metadata. Previously, `FieldResolver` built a lookup table from `FieldMetadata.dropdown_options` (V1-only; always empty on V2). Now text is read directly from the `DropdownOption` object extracted from the field value.
+- SDK: `async_check_unreplied()` replaced broken no-type `iter()` call with `asyncio.gather()` per-type pattern for parallel interaction fetching.
+- CLI: `_extract_person_display_name` and `_extract_person_name` now delegate to shared `resolve_person()` utility.
+
+### Documentation
+- Added `FieldResolver` usage example to README "Working with Lists" section.
+- Added `FieldResolver` mention to getting-started guide field gotchas, linking to performance guide.
+- Replaced raw field count with `FieldResolver` usage in `examples/basic_usage.py`.
+- Updated field-types-and-values guide: dropdown types now document `DropdownOption` return type.
+- Added "List Entry Field Access" section to performance guide explaining `entry.entity.fields` delegation.
+
+## [1.3.2] - 2026-02-08
+
+### Highlights
+
+Fixes writing to `dropdown-multi` fields via `--set` and `--append`. Previously all dropdown-multi writes failed with a type mismatch error.
+
+### Fixed
+- CLI: `--set` and `--append` now work for `dropdown-multi` fields. Previously, `resolve_dropdown_value()` only handled `dropdown` and `ranked-dropdown`, causing all dropdown-multi writes to fail with "Field value type should be dropdown-multi" errors. The fix resolves option text/IDs and wraps them in the array format required by the V2 API.
+
+## [1.3.1] - 2026-02-06
+
+### Highlights
+
+`FieldResolver` now works correctly with list entry objects -- it auto-delegates to the inner entity when fields were fetched on the entity rather than the list entry directly.
+
+### Fixed
+- SDK: `FieldResolver.get()` and `get_by_id()` now automatically delegate to the inner entity when called with a `ListEntryWithEntity` whose fields were not directly requested. Previously warned and returned `None` even when `entry.entity.fields` were populated.
+- SDK: `FieldResolver` duplicate field name warning now includes enrichment source (e.g., "dealroom" vs "affinity-data") instead of raw IDs, making enrichment provider collisions immediately clear.
+
+## [1.3.0] - 2026-02-06
+
+### Highlights
+
+New `list_batch()` method on `AsyncEntityFileService` for fetching files across multiple entities concurrently with auto-pagination.
+
+### Added
+- SDK: `list_batch()` on `AsyncEntityFileService` for fetching files across multiple entities concurrently with auto-pagination. Accepts `person_ids`, `company_ids`, or `opportunity_ids` with `max_concurrent` and `on_error` ("raise"/"skip") parameters.
+
+## [1.2.0] - 2026-02-06
+
+### Highlights
+
+New async batch methods for files and reminders: `batch_get()` on `AsyncEntityFileService` and `list_batch()` on `AsyncReminderService` for concurrent multi-entity operations. Also fixes falsy ID bugs across reminder and file services.
+
+### Added
+- SDK: `batch_get()` on `AsyncEntityFileService` for fetching file metadata concurrently with controlled concurrency. Supports `max_concurrent` and `on_error` ("raise"/"skip") parameters.
+- SDK: `list_batch()` on `AsyncReminderService` for fetching reminders across multiple entities concurrently with auto-pagination. Accepts `person_ids`, `company_ids`, or `opportunity_ids` with common filters.
+
+### Fixed
+- SDK: Fixed truthiness bugs in `ReminderService.list()`, `AsyncReminderService.list()`, `EntityFileService.list()`, and `AsyncEntityFileService.list()` where `PersonId(0)`, `CompanyId(0)`, and other falsy values were silently dropped from query parameters. Changed all `if <param>:` guards to `if <param> is not None:`.
+- SDK: Fixed incorrect `ReminderStatus` docstrings that referenced non-existent "SNOOZED" and "COMPLETE" values. The actual enum values are `COMPLETED`, `ACTIVE`, and `OVERDUE`.
+
+## [1.1.0] - 2026-02-05
+
+### Highlights
+
+Major convenience release: `FieldResolver` for looking up field values by name instead of ID, `batch_get()` for concurrent entity fetching, `read_only()` factory for safe clients, and `get_first()` for quick single-entity lookups. Working with Affinity field data is now significantly easier.
+
+### Added
+- SDK: `CompanyService.get_many(company_ids)` convenience method for batch fetching multiple companies in a single API call. Alias for `list(ids=[...])` with better discoverability.
+- SDK: `FieldValues.get(field_id)` convenience method for safer access to field values by ID. Returns the field value dict or `None` if not found.
+- SDK: `Affinity.read_only()` and `Affinity.read_only_from_env()` factory methods (and async variants) for creating clients that block all write operations. Useful for read-only scripts and dashboards.
+- SDK: `get_first()` convenience method on `CompanyService`, `PersonService`, `OpportunityService`, `ListService`, and `ListEntryService` (sync + async). Returns the first matching entity or `None`.
+- SDK: `batch_get()` on `AsyncCompanyService`, `AsyncPersonService`, and `AsyncOpportunityService` for fetching multiple entities with controlled concurrency. Supports `max_concurrent` and `on_error` ("raise"/"skip") parameters.
+- SDK: `FieldValues.get_value(field_id)` for extracting the unwrapped field value (e.g., returns `"Active"` instead of `{"data": "Active"}`). Handles text, dropdown, multi-value, and location fields.
+- SDK: `FieldResolver` helper class for looking up field values by name instead of ID. Supports case-insensitive matching, batch extraction via `get_many()`, and dropdown option resolution.
+- Docs: "Field Lookup Patterns" section in performance guide documenting `FieldResolver` usage, low-level access, and field metadata sources.
+
+### Fixed
+- SDK: `FieldService.list()` now caches results for 5 minutes (matching V2 field endpoints). Previously only V2 endpoints (`companies.get_fields()`, `persons.get_fields()`) were cached.
+- SDK: `FieldService.list(list_id=ListId(0))` no longer skips the `list_id` parameter. The falsy ID guard (`if list_id:`) was changed to `if list_id is not None:`.
+
+## [1.0.3] - 2026-02-03
+
+### Highlights
+
+Fixes MCP timeout failures during large query `include` operations by emitting incremental progress every 10 records instead of only at start/end.
+
+### Fixed
+- CLI: Query `include` operations now emit incremental progress every 10 records during N+1 API calls. Previously, progress was only emitted at the start and end of include steps, causing MCP timeout to expire during long-running N+1 operations (e.g., 100 records with `include: ["persons"]`). The fix changes from `asyncio.gather()` to `asyncio.as_completed()` for incremental progress emission.
+
+## [1.0.2] - 2026-02-03
+
+### Highlights
+
+Fixes descending sort for string fields in queries (dates, names were silently returning ascending order) and corrects API call estimates for sorted queries that could cause premature timeouts.
+
+### Fixed
+- CLI: Query `orderBy` with descending direction now works correctly for string values (dates, names, etc.). Previously, descending sort on non-numeric fields silently returned results in ascending order because string values cannot be negated. The fix uses a comparison-inverting wrapper class for proper descending sort.
+- CLI: Query dry run now correctly estimates API calls when `orderBy` is present. Previously, `estimatedApiCalls` used the `limit` value even though sorting requires fetching all records first. A query with `limit: 200` and `orderBy` on a 9000-record list showed 4 API calls instead of ~90. This caused dynamic timeout calculations to be too short.
+
 ## [1.0.1] - 2026-02-01
+
+### Highlights
+
+Fixes unreplied email/chat detection (`--check-unreplied` and `expand: ["unreplied"]`) which was silently failing, and adds required `type` parameter validation to `InteractionService` with clear error messages instead of cryptic 422s.
 
 ### Fixed
 - SDK: `InteractionService.list()` and `iter()` now validate that `type` parameter is required, raising `ValueError` with clear guidance instead of failing with cryptic API 422 errors. The Affinity V1 API has always required this parameter.

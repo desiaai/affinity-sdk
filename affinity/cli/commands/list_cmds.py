@@ -570,6 +570,16 @@ def list_export(
     - `xaffinity list export "Pipeline" --field Status --field "Deal Size" --all`
     - `xaffinity list export "Pipeline" --expand persons --all --csv > opps-with-persons.csv`
     - `xaffinity list export "Pipeline" --expand persons --expand companies --all`
+
+    JSON output structure:
+
+        {"data": {"rows": [{"listEntryId": 123, "entityType": "company",
+        "entityId": 456, "entityName": "Acme", "Status": "Active", ...}]},
+        "meta": {"pagination": {"rows": {"nextCursor": "...", "prevCursor": null}}}}
+
+    Each row always contains: listEntryId, entityType, entityId, entityName,
+    plus field values keyed by field name. Note: the key is "rows", not
+    "listEntries" or "entries".
     """
 
     def fn(ctx: CLIContext, warnings: list[str]) -> CommandOutput:
@@ -3243,23 +3253,28 @@ def list_entry_field(
             if field_spec not in resolved_fields:
                 resolved_fields[field_spec] = resolve_field(field_spec)
 
-        # Handle --get: read field values
+        # Handle --get: read field values via V2 API (returns resolved person/company objects)
         if has_get:
-            existing_values = client.field_values.list(list_entry_id=ListEntryId(entry_id))
-            field_results: dict[str, Any] = {}
+            entries = client.lists.entries(resolved_list.list.id)
+            target_field_ids = [resolved_fields[fs] for fs in get_fields]
+            v2_fields = entries.get_field_values(
+                ListEntryId(entry_id),
+                ids=target_field_ids,
+            )
 
+            field_results: dict[str, Any] = {}
             for field_spec in get_fields:
-                target_field_id = resolved_fields[field_spec]  # Already resolved upfront
-                field_values = find_field_values_for_field(
-                    field_values=[serialize_model_for_cli(v) for v in existing_values],
-                    field_id=target_field_id,
-                )
+                target_field_id = resolved_fields[field_spec]
                 resolved_name = resolver.get_field_name(target_field_id) or field_spec
-                if field_values:
-                    if len(field_values) == 1:
-                        field_results[resolved_name] = field_values[0].get("value")
+                # Extract raw .value.data — same approach as _extract_field_values()
+                # and list export. Do NOT use get_value() which returns typed objects.
+                field_obj = v2_fields.data.get(target_field_id)
+                if field_obj is not None:
+                    value_wrapper = field_obj.get("value")
+                    if isinstance(value_wrapper, dict) and "data" in value_wrapper:
+                        field_results[resolved_name] = value_wrapper["data"]
                     else:
-                        field_results[resolved_name] = [fv.get("value") for fv in field_values]
+                        field_results[resolved_name] = value_wrapper
                 else:
                     field_results[resolved_name] = None
 
@@ -3353,7 +3368,7 @@ def list_entry_field(
                 parsed_field_id = EnrichedFieldId(target_field_id)
 
             # Resolve dropdown values (text → option ID) and get correct value_type
-            resolved_value, value_type_str = resolver.resolve_dropdown_value(target_field_id, value)
+            resolved_value, value_type_str = resolver.resolve_field_value(target_field_id, value)
 
             result = entries.update_field_value(
                 ListEntryId(entry_id), parsed_field_id, resolved_value, value_type=value_type_str
@@ -3361,20 +3376,97 @@ def list_entry_field(
             created_values.append(serialize_model_for_cli(result))
 
         # Phase 2: Handle --append (add without replacing)
-        for field_spec, value in append_values:
-            target_field_id = resolved_fields[field_spec]  # Already resolved upfront
+        # Group appends by field to aggregate repeated --append on the same field
+        # (e.g., --append Tags A --append Tags B → single write with [existing, A, B])
+        from collections import OrderedDict
 
-            # Just create new value (no delete = append)
+        append_groups: OrderedDict[str, list[str]] = OrderedDict()
+        for field_spec, value in append_values:
+            target_field_id = resolved_fields[field_spec]
+            append_groups.setdefault(target_field_id, []).append(value)
+
+        for target_field_id, values_for_field in append_groups.items():
             try:
                 parsed_field_id = FieldId(target_field_id)
             except ValueError:
                 parsed_field_id = EnrichedFieldId(target_field_id)
 
-            # Resolve dropdown values (text → option ID) and get correct value_type
-            resolved_value, value_type_str = resolver.resolve_dropdown_value(target_field_id, value)
+            # Resolve all values and determine value_type
+            all_new_resolved: list[Any] = []
+            value_type_str = "text"
+            for val in values_for_field:
+                resolved_value, value_type_str = resolver.resolve_field_value(target_field_id, val)
+                if isinstance(resolved_value, list):
+                    all_new_resolved.extend(resolved_value)
+                else:
+                    all_new_resolved.append(resolved_value)
+
+            # For multi-value fields (dropdown-multi, person-multi, company-multi),
+            # the V2 API replaces the entire array on POST.
+            # To truly append, merge new values with existing ones.
+            if value_type_str == "dropdown-multi" and all_new_resolved:
+                existing_for_field = find_field_values_for_field(
+                    field_values=existing_values_serialized,
+                    field_id=target_field_id,
+                )
+                existing_option_ids: set[int] = set()
+                existing_options: list[dict[str, int]] = []
+                for fv in existing_for_field:
+                    fv_value = fv.get("value")
+                    if fv_value is None:
+                        continue
+                    existing_resolved, _ = resolver.resolve_field_value(
+                        target_field_id, str(fv_value)
+                    )
+                    if isinstance(existing_resolved, list):
+                        for opt in existing_resolved:
+                            if isinstance(opt, dict):
+                                opt_id = opt.get("dropdownOptionId")
+                                if opt_id is not None and opt_id not in existing_option_ids:
+                                    existing_option_ids.add(opt_id)
+                                    existing_options.append(opt)
+                for opt in all_new_resolved:
+                    if isinstance(opt, dict):
+                        opt_id = opt.get("dropdownOptionId")
+                        if opt_id is not None and opt_id not in existing_option_ids:
+                            existing_option_ids.add(opt_id)
+                            existing_options.append(opt)
+                final_value: Any = existing_options
+
+            elif value_type_str in ("person-multi", "company-multi") and all_new_resolved:
+                from ..field_utils import _extract_entity_id
+
+                existing_for_field = find_field_values_for_field(
+                    field_values=existing_values_serialized,
+                    field_id=target_field_id,
+                )
+                existing_entity_ids: set[int] = set()
+                existing_entities: list[dict[str, int]] = []
+                for fv in existing_for_field:
+                    fv_value = fv.get("value")
+                    eid = _extract_entity_id(fv_value)
+                    if eid is not None and eid not in existing_entity_ids:
+                        existing_entity_ids.add(eid)
+                        existing_entities.append({"id": eid})
+                for opt in all_new_resolved:
+                    if isinstance(opt, dict):
+                        eid = opt.get("id")
+                        if eid is not None and eid not in existing_entity_ids:
+                            existing_entity_ids.add(eid)
+                            existing_entities.append(opt)
+                final_value = existing_entities
+
+            elif len(values_for_field) == 1:
+                # Single append on non-multi field: use resolved value directly
+                final_value = (
+                    all_new_resolved[0] if len(all_new_resolved) == 1 else all_new_resolved
+                )
+            else:
+                # Multiple appends on non-multi field: use last value
+                final_value = all_new_resolved[-1] if all_new_resolved else all_new_resolved
 
             result = entries.update_field_value(
-                ListEntryId(entry_id), parsed_field_id, resolved_value, value_type=value_type_str
+                ListEntryId(entry_id), parsed_field_id, final_value, value_type=value_type_str
             )
             created_values.append(serialize_model_for_cli(result))
 

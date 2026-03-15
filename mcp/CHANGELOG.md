@@ -5,7 +5,61 @@ All notable changes to the xaffinity MCP server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-02-21
+
+### Highlights
+
+New pipeline history analysis skill guides multi-step workflows for deal stage transitions, funnel conversion, and time-in-stage metrics. Also adds `field history-bulk` to the command registry for LLM discoverability.
+
+### Added
+- Pipeline history analysis skill (`pipeline-history`) with 5-step workflow: identify status field, export current state, dry-run estimate, fetch history, analyze transitions
+- `field history-bulk` command in MCP command registry with `whenToUse` guidance, examples, and `requiresDryRun` behavior
+- Bulk field change history section in data model resource
+
+### Changed
+- Updated `field history` registry entry to reference `field history-bulk` for bulk operations
+- Updated CLI compatibility to require CLI 1.7.0 (for `field history-bulk` and `--list` alias)
+
+## [1.18.1] - 2026-02-15
+
+### Highlights
+
+Improved LLM guidance quality: query language skill rewritten with progressive disclosure for better context efficiency, and workflow skill descriptions updated to Anthropic's recommended formula.
+
+### Changed
+- Rewrote `query-language` SKILL.md (861→293 lines) with progressive disclosure; extracted detail to reference files (`filter-operators.md`, `quantifiers.md`, `include-expand.md`, `output-formats.md`)
+- Updated `affinity-mcp-workflows` skill description following Anthropic skills guide formula
+
+## [1.18.0] - 2026-02-04
+
+### Highlights
+
+The Debug Mode toggle in Claude Desktop Extensions settings now works correctly. Also upgrades to mcp-bash 1.1.1, which includes zombie process mitigation and MCP Apps support.
+
+### Fixed
+- **Debug Mode UI toggle now works**: The "Debug Mode" toggle in Claude Desktop Extensions settings now correctly enables debug logging. Previously, the boolean value `true` was not recognized by the mcp-bash framework. Upgraded to mcp-bash 1.1.1 which normalizes boolean values (`true`/`1` → `debug`, `false`/`0` → `info`).
+
+### Changed
+- Upgraded mcp-bash framework to 1.1.1 (major version jump includes zombie process mitigation, MCP Apps support, and boolean log level normalization).
+- Fixed incorrect comment in `xaffinity-mcp.sh` that claimed `env.sh` is sourced in bundle mode (it is not).
+
+## [1.17.1] - 2026-02-03
+
+### Highlights
+
+Query tool timeout parameter is now detected correctly when nested inside the `query` object. Requires CLI 1.0.3 for incremental progress during large include operations.
+
+### Fixed
+- **Query tool timeout parameter detection**: The `timeout` parameter is now detected when placed inside the `query` object instead of at the top level. Previously, `{"query": {..., "timeout": 300}}` was silently ignored, falling back to auto-calculated timeout (minimum 30s). The tool now uses the nested value with a warning, and auto-converts milliseconds to seconds if value > 1000.
+
+### Changed
+- Requires CLI 1.0.3 (for incremental progress during N+1 include operations).
+
 ## [1.17.0] - 2026-01-31
+
+### Highlights
+
+MCP-only users now get automatic update notifications when a new CLI version is available. Checks are non-blocking and throttled to once per 24 hours. Requires CLI 1.0.0.
 
 ### Added
 - **Update notifications for MCP-only users**: The MCP server now checks for CLI updates at startup and displays warnings when a new version is available. This helps users who only use the MCP server (via Claude Desktop or Claude Code) stay up to date. Update checks are non-blocking, throttled to 24 hours, and respect user opt-out (`XAFFINITY_NO_UPDATE_CHECK=1` or config file). Uses new CLI `--background` flag for background checks.

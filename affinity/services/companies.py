@@ -31,7 +31,14 @@ from ..models.pagination import (
     PaginationInfo,
 )
 from ..models.secondary import MergeTask
-from ..models.types import AnyFieldId, CompanyId, FieldType, OpportunityId, PersonId
+from ..models.types import (
+    AnyFieldId,
+    CompanyId,
+    FieldType,
+    OpportunityId,
+    PersonId,
+    validate_entity_field_types,
+)
 
 if TYPE_CHECKING:
     from ..clients.http import AsyncHTTPClient, HTTPClient
@@ -77,6 +84,7 @@ class CompanyService:
         Returns:
             Paginated response with companies
         """
+        validate_entity_field_types(field_types, endpoint="company")
         if cursor is not None:
             if any(p is not None for p in (ids, field_ids, field_types, filter, limit)):
                 raise ValueError(
@@ -105,6 +113,43 @@ class CompanyService:
             data=[Company.model_validate(c) for c in data.get("data", [])],
             pagination=PaginationInfo.model_validate(data.get("pagination", {})),
         )
+
+    def get_first(
+        self,
+        *,
+        filter: str | FilterExpression | None = None,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> Company | None:
+        """
+        Get the first company matching the filter, or None if no match.
+
+        This is a convenience method equivalent to:
+            page = client.companies.list(filter=filter, limit=1)
+            return page.data[0] if page.data else None
+
+        Args:
+            filter: V2 filter expression
+            field_ids: Specific field IDs to include
+            field_types: Field types to include
+
+        Returns:
+            First matching Company, or None if no results.
+
+        Example:
+            >>> company = client.companies.get_first(
+            ...     filter=F.field("domain").eq("acme.com")
+            ... )
+            >>> if company:
+            ...     print(company.name)
+        """
+        page = self.list(
+            filter=filter,
+            field_ids=field_ids,
+            field_types=field_types,
+            limit=1,
+        )
+        return page.data[0] if page.data else None
 
     def pages(
         self,
@@ -312,6 +357,33 @@ class CompanyService:
                 pass  # V1 also failed, raise original V2 error
 
         raise last_error  # type: ignore[misc]
+
+    def get_many(
+        self,
+        company_ids: Sequence[CompanyId],
+        *,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> PaginatedResponse[Company]:
+        """
+        Fetch multiple companies by ID in a single API call.
+
+        This is a convenience alias for ``list(ids=[...])``.
+
+        Args:
+            company_ids: Company IDs to fetch
+            field_ids: Specific field IDs to include in response
+            field_types: Field types to include (e.g., ["enriched", "global"])
+
+        Returns:
+            Paginated response with companies
+
+        Example:
+            >>> companies = client.companies.get_many([CompanyId(1), CompanyId(2)])
+            >>> for company in companies.data:
+            ...     print(company.name)
+        """
+        return self.list(ids=company_ids, field_ids=field_ids, field_types=field_types)
 
     def get_associated_person_ids(
         self,
@@ -894,6 +966,7 @@ class AsyncCompanyService:
         Returns:
             Paginated response with companies
         """
+        validate_entity_field_types(field_types, endpoint="company")
         if cursor is not None:
             if any(p is not None for p in (ids, field_ids, field_types, filter, limit)):
                 raise ValueError(
@@ -922,6 +995,102 @@ class AsyncCompanyService:
             data=[Company.model_validate(c) for c in data.get("data", [])],
             pagination=PaginationInfo.model_validate(data.get("pagination", {})),
         )
+
+    async def get_first(
+        self,
+        *,
+        filter: str | FilterExpression | None = None,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> Company | None:
+        """
+        Get the first company matching the filter, or None if no match.
+
+        See CompanyService.get_first() for details.
+        """
+        page = await self.list(
+            filter=filter,
+            field_ids=field_ids,
+            field_types=field_types,
+            limit=1,
+        )
+        return page.data[0] if page.data else None
+
+    async def batch_get(
+        self,
+        company_ids: Sequence[CompanyId],
+        *,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+        with_interaction_dates: bool = False,
+        with_interaction_persons: bool = False,
+        max_concurrent: int = 10,
+        on_error: Literal["raise", "skip"] = "raise",
+    ) -> dict[CompanyId, Company]:
+        """
+        Fetch multiple companies with controlled concurrency.
+
+        Unlike get_many() which uses the API's batch endpoint, this method
+        makes individual get() calls with bounded concurrency. Use this when
+        you need parameters not supported by the batch endpoint (e.g.,
+        with_interaction_dates=True).
+
+        Args:
+            company_ids: Company IDs to fetch
+            field_ids: Specific field IDs to include
+            field_types: Field types to include
+            with_interaction_dates: Include interaction date summaries
+            with_interaction_persons: Include person IDs for interactions
+            max_concurrent: Maximum concurrent API calls (default: 10)
+            on_error: How to handle AffinityError exceptions:
+                - "raise": Raise on first AffinityError (default)
+                - "skip": Skip failed IDs, return partial results
+
+        Returns:
+            Dict mapping company_id -> Company for successfully fetched companies.
+
+        Raises:
+            AffinityError: If on_error="raise" and any fetch fails.
+        """
+        if not company_ids:
+            return {}
+        if max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
+
+        unique_ids = list(dict.fromkeys(company_ids))
+        results: dict[CompanyId, Company] = {}
+
+        async def fetch_one(cid: CompanyId) -> tuple[CompanyId, Company | None]:
+            try:
+                company = await self.get(
+                    cid,
+                    field_ids=field_ids,
+                    field_types=field_types,
+                    with_interaction_dates=with_interaction_dates,
+                    with_interaction_persons=with_interaction_persons,
+                )
+                return (cid, company)
+            except AffinityError:
+                if on_error == "raise":
+                    raise
+                return (cid, None)
+
+        for i in range(0, len(unique_ids), max_concurrent):
+            chunk = unique_ids[i : i + max_concurrent]
+            tasks = [asyncio.create_task(fetch_one(cid)) for cid in chunk]
+            try:
+                for coro in asyncio.as_completed(tasks):
+                    cid, company = await coro
+                    if company is not None:
+                        results[cid] = company
+            except BaseException:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+
+        return results
 
     async def pages(
         self,
@@ -1125,6 +1294,33 @@ class AsyncCompanyService:
                 pass  # V1 also failed, raise original V2 error
 
         raise last_error  # type: ignore[misc]
+
+    async def get_many(
+        self,
+        company_ids: Sequence[CompanyId],
+        *,
+        field_ids: Sequence[AnyFieldId] | None = None,
+        field_types: Sequence[FieldType] | None = None,
+    ) -> PaginatedResponse[Company]:
+        """
+        Fetch multiple companies by ID in a single API call.
+
+        This is a convenience alias for ``list(ids=[...])``.
+
+        Args:
+            company_ids: Company IDs to fetch
+            field_ids: Specific field IDs to include in response
+            field_types: Field types to include (e.g., ["enriched", "global"])
+
+        Returns:
+            Paginated response with companies
+
+        Example:
+            >>> companies = await client.companies.get_many([CompanyId(1), CompanyId(2)])
+            >>> for company in companies.data:
+            ...     print(company.name)
+        """
+        return await self.list(ids=company_ids, field_ids=field_ids, field_types=field_types)
 
     async def get_list_entries(
         self,

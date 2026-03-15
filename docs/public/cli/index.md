@@ -32,7 +32,7 @@ Using Claude Code? Install the CLI plugin for AI-assisted usage:
 /plugin install cli@xaffinity
 ```
 
-This teaches Claude CLI patterns and provides the `/affinity-help` quick reference command. See [Claude Code plugins](../guides/claude-code-plugins.md) for all available plugins.
+This teaches Claude CLI patterns and provides hooks for API key protection and Cowork bootstrap. See [Claude Code plugins](../guides/claude-code-plugins.md) for all available plugins.
 
 ## Install
 
@@ -203,13 +203,19 @@ update_notify = "interactive"  # "interactive" (default), "always", or "never"
 
 ### Manual Check
 
-Check for updates manually:
+Check your update status (queries PyPI if no recent cache):
+
+```bash
+xaffinity config update-check
+```
+
+Force a fresh check regardless of cache age:
 
 ```bash
 xaffinity config update-check --now
 ```
 
-See current update status:
+See detailed update status (JSON-friendly):
 
 ```bash
 xaffinity config update-check --status

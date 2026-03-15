@@ -12,13 +12,6 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.9
-    hooks:
-      - id: ruff-check
-        args: [--fix]
-      - id: ruff-format
-
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.15.0
     hooks:
@@ -41,19 +34,25 @@ repos:
 
   - repo: local
     hooks:
+      # Use system ruff (from pyproject.toml) to ensure version parity with CI
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --fix
+        language: system
+        types: [python]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format
+        language: system
+        types: [python]
+        require_serial: true
       - id: check-cli-patterns
         name: Check CLI serialization patterns
         entry: python tools/check_cli_patterns.py
         language: system
         types: [python]
         files: ^affinity/cli/commands/.*\.py$
-      - id: sync-plugin-version
-        name: Sync plugin version with SDK
-        entry: python tools/sync_plugin_version.py
-        language: python
-        files: ^(pyproject\.toml|plugins/.*/\.claude-plugin/plugin\.json)$
-        pass_filenames: false
-        additional_dependencies: ['tomli']
       - id: sync-mcp-registry
         name: Sync MCP CLI commands registry
         entry: python tools/sync_mcp_registry.py
@@ -61,14 +60,14 @@ repos:
         files: ^(pyproject\.toml|affinity/cli/commands/.*\.py)$
         pass_filenames: false
       - id: sync-mcp-version
-        name: Sync MCP version files
+        name: Sync MCP server version
         entry: python tools/sync_mcp_version.py
         language: python
-        files: ^(mcp/VERSION|mcp/\.claude-plugin/plugin\.json|mcp/server\.d/server\.meta\.json)$
+        files: ^(mcp/VERSION|mcp/server\.d/server\.meta\.json)$
         pass_filenames: false
       - id: pytest-pre-push
         name: Run tests before push
-        entry: pytest tests/ -x -q --tb=short
+        entry: python -m pytest tests/ -x -q --tb=short
         language: system
         pass_filenames: false
         stages: [pre-push]

@@ -245,7 +245,7 @@ def parse_webhook(
 
 def _coerce_handler(handler: type[BaseModel] | BodyParser) -> BodyParser:
     if isinstance(handler, type) and issubclass(handler, BaseModel):
-        return lambda body: handler.model_validate(body)
+        return handler.model_validate
     return handler
 
 

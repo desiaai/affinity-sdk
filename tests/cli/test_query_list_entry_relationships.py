@@ -426,7 +426,9 @@ class TestFetchInteractionsForListEntries:
         )
 
         assert 100 in results
-        assert len(results[100]) == 2
+        # _fetch_interactions_for_entity iterates all 4 InteractionTypes,
+        # mock yields 2 items per type → 8 total (capped by limit=10)
+        assert len(results[100]) == 8
         assert results[100][0]["type"] == "email"
 
     @pytest.mark.req("QUERY-LIST-ENTRY-INCLUDE-004")

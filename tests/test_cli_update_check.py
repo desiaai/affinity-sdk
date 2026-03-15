@@ -182,22 +182,60 @@ class TestCacheRoundtrip:
         assert loaded is not None
         assert loaded.last_notified_at is not None
 
-    def test_cache_invalidated_when_version_changed(self, tmp_path):
-        """Cache should be invalidated if user upgraded since last check."""
+    def test_cache_adapted_when_user_upgraded(self, tmp_path):
+        """Cache should be adapted (not invalidated) if user upgraded since last check."""
         cache_path = tmp_path / "update_check.json"
         info = UpdateInfo(
-            current_version="0.8.0",  # Old version
+            current_version="0.1.0",  # Old version — lower than any real installed version
             latest_version="0.9.0",
             checked_at=datetime.now(timezone.utc),
             update_available=True,
         )
         save_update_info(cache_path, info)
 
-        # Simulate user upgraded - cache should be invalidated
-        # We can't easily mock affinity.__version__ here, but we can test
-        # the cache file contents directly
-        # The loaded info will be None because it doesn't match current version
-        # (assuming current version is not 0.8.0)
+        # Since 0.1.0 < installed version, cache should be adapted (not None)
+        loaded = get_cached_update_info(cache_path)
+        assert loaded is not None
+        # The adapted cache should reflect the installed version
+        import affinity
+
+        assert loaded.current_version == affinity.__version__
+        # update_available should be cleared (can't know until next check)
+        assert loaded.update_available is False
+        # last_notified_at should be reset
+        assert loaded.last_notified_at is None
+        # latest_version should be preserved from original cache
+        assert loaded.latest_version == "0.9.0"
+
+    def test_cache_invalidated_when_downgraded(self, tmp_path):
+        """Cache invalidated when cached version > installed (downgrade)."""
+        cache_path = tmp_path / "update_check.json"
+        info = UpdateInfo(
+            current_version="999.0.0",  # Higher than any real installed version
+            latest_version="999.0.1",
+            checked_at=datetime.now(timezone.utc),
+            update_available=True,
+        )
+        save_update_info(cache_path, info)
+
+        # Since 999.0.0 > installed version, cache should be invalidated
+        assert get_cached_update_info(cache_path) is None
+
+    def test_cache_invalidated_when_version_invalid(self, tmp_path):
+        """Cache should be invalidated if cached version string is unparseable."""
+        import json as json_mod
+
+        cache_path = tmp_path / "update_check.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "current_version": "not-a-version",
+            "latest_version": "1.0.0",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "update_available": True,
+            "last_notified_at": None,
+        }
+        cache_path.write_text(json_mod.dumps(data), encoding="utf-8")
+
         assert get_cached_update_info(cache_path) is None
 
     def test_stale_cache_detected(self, tmp_path):
@@ -295,11 +333,33 @@ class TestBackgroundCheckIntegration:
     def test_trigger_background_check_acquires_lock(self, tmp_path):
         """Verify background check acquires and releases lock."""
         with patch("subprocess.Popen"):
-            trigger_background_update_check(tmp_path)
+            trigger_background_update_check(tmp_path, current_version="1.0.0")
             # Lock should be released after subprocess spawn
             lock = acquire_update_lock(tmp_path)
             assert lock is not None
             lock.release()
+
+    def test_trigger_background_check_passes_current_version(self, tmp_path):
+        """Verify background check passes --current-version to subprocess."""
+        with patch("subprocess.Popen") as mock_popen:
+            trigger_background_update_check(tmp_path, current_version="1.6.0")
+            mock_popen.assert_called_once()
+            cmd = mock_popen.call_args[0][0]
+            assert "--current-version" in cmd
+            version_idx = cmd.index("--current-version")
+            assert cmd[version_idx + 1] == "1.6.0"
+
+    def test_trigger_background_check_falls_back_to_affinity_version(self, tmp_path):
+        """Verify background check uses affinity.__version__ when no version given."""
+        import affinity
+
+        with patch("subprocess.Popen") as mock_popen:
+            trigger_background_update_check(tmp_path)
+            mock_popen.assert_called_once()
+            cmd = mock_popen.call_args[0][0]
+            assert "--current-version" in cmd
+            version_idx = cmd.index("--current-version")
+            assert cmd[version_idx + 1] == affinity.__version__
 
     def test_trigger_background_check_skips_when_locked(self, tmp_path):
         """Verify background check skips when another process holds lock."""
@@ -316,9 +376,11 @@ class TestBackgroundCheckIntegration:
 
     def test_check_for_update_interactive_no_cache(self, tmp_path):
         """Verify interactive check triggers background when no cache."""
+        import affinity
+
         with patch("affinity.cli.update_check.trigger_background_update_check") as mock_trigger:
             check_for_update_interactive(tmp_path)
-            mock_trigger.assert_called_once_with(tmp_path)
+            mock_trigger.assert_called_once_with(tmp_path, current_version=affinity.__version__)
 
     def test_check_for_update_interactive_with_fresh_cache_no_update(self, tmp_path):
         """Verify no notification when cache says no update."""
@@ -461,6 +523,8 @@ class TestUpdateWorker:
         import subprocess
         import sys
 
+        import affinity
+
         cache_path = tmp_path / "update_check.json"
 
         # Run worker with invalid proxy to force quick network failure
@@ -472,6 +536,8 @@ class TestUpdateWorker:
                 "affinity.cli._update_worker",
                 "--cache-path",
                 str(cache_path),
+                "--current-version",
+                affinity.__version__,
             ],
             check=False,
             capture_output=True,
@@ -484,6 +550,29 @@ class TestUpdateWorker:
         # Should not produce any output (silent failure)
         assert result.stdout == b""
         assert result.stderr == b""
+
+    def test_worker_rejects_missing_current_version(self, tmp_path):
+        """Verify worker exits with error if --current-version is missing."""
+        import subprocess
+        import sys
+
+        cache_path = tmp_path / "update_check.json"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "affinity.cli._update_worker",
+                "--cache-path",
+                str(cache_path),
+            ],
+            check=False,
+            capture_output=True,
+            timeout=10,
+        )
+
+        # argparse exits with code 2 for missing required args
+        assert result.returncode == 2
 
 
 class TestUpdateCheckStatusJsonContract:
@@ -498,15 +587,24 @@ class TestUpdateCheckStatusJsonContract:
         from click.testing import CliRunner
 
         from affinity.cli.main import cli
+        from affinity.cli.paths import CliPaths
 
-        # Use isolated config/state dirs
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         # Ensure no existing config interferes
         monkeypatch.delenv("AFFINITY_API_KEY", raising=False)
 
+        # Use isolated paths (XDG env vars are ignored on macOS by PlatformDirs)
+        mock_paths = CliPaths(
+            config_dir=tmp_path / "config",
+            config_path=tmp_path / "config" / "config.toml",
+            cache_dir=tmp_path / "cache",
+            state_dir=tmp_path / "state",
+            log_dir=tmp_path / "logs",
+            log_file=tmp_path / "logs" / "xaffinity.log",
+        )
+
         runner = CliRunner()
-        result = runner.invoke(cli, ["--json", "config", "update-check", "--status"])
+        with patch("affinity.cli.main.get_paths", return_value=mock_paths):
+            result = runner.invoke(cli, ["--json", "config", "update-check", "--status"])
 
         # Command should succeed
         assert result.exit_code == 0, f"Command failed: {result.output}"
@@ -579,15 +677,26 @@ class TestUpdateCheckStatusJsonContract:
         from click.testing import CliRunner
 
         from affinity.cli.main import cli
+        from affinity.cli.paths import CliPaths
 
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
         monkeypatch.delenv("AFFINITY_API_KEY", raising=False)
+
+        mock_paths = CliPaths(
+            config_dir=tmp_path / "config",
+            config_path=tmp_path / "config" / "config.toml",
+            cache_dir=tmp_path / "cache",
+            state_dir=tmp_path / "state",
+            log_dir=tmp_path / "logs",
+            log_file=tmp_path / "logs" / "xaffinity.log",
+        )
 
         runner = CliRunner()
 
         # Mock subprocess.Popen to avoid actually spawning background process
-        with patch("subprocess.Popen") as mock_popen:
+        with (
+            patch("affinity.cli.main.get_paths", return_value=mock_paths),
+            patch("subprocess.Popen") as mock_popen,
+        ):
             result = runner.invoke(cli, ["config", "update-check", "--background"])
 
             # Verify subprocess was spawned
@@ -597,32 +706,48 @@ class TestUpdateCheckStatusJsonContract:
         assert result.exit_code == 0
         assert result.output.strip() == ""
 
-    def test_mutual_exclusion_now_status(self, tmp_path, monkeypatch):
+    def test_mutual_exclusion_now_status(self, tmp_path):
         """Verify --now and --status are mutually exclusive."""
         from click.testing import CliRunner
 
         from affinity.cli.main import cli
+        from affinity.cli.paths import CliPaths
 
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        mock_paths = CliPaths(
+            config_dir=tmp_path / "config",
+            config_path=tmp_path / "config" / "config.toml",
+            cache_dir=tmp_path / "cache",
+            state_dir=tmp_path / "state",
+            log_dir=tmp_path / "logs",
+            log_file=tmp_path / "logs" / "xaffinity.log",
+        )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["config", "update-check", "--now", "--status"])
+        with patch("affinity.cli.main.get_paths", return_value=mock_paths):
+            result = runner.invoke(cli, ["config", "update-check", "--now", "--status"])
 
         assert result.exit_code != 0
         assert "mutually exclusive" in result.output.lower()
 
-    def test_mutual_exclusion_action_with_enable(self, tmp_path, monkeypatch):
+    def test_mutual_exclusion_action_with_enable(self, tmp_path):
         """Verify action flags cannot be combined with --enable/--disable."""
         from click.testing import CliRunner
 
         from affinity.cli.main import cli
+        from affinity.cli.paths import CliPaths
 
-        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+        mock_paths = CliPaths(
+            config_dir=tmp_path / "config",
+            config_path=tmp_path / "config" / "config.toml",
+            cache_dir=tmp_path / "cache",
+            state_dir=tmp_path / "state",
+            log_dir=tmp_path / "logs",
+            log_file=tmp_path / "logs" / "xaffinity.log",
+        )
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["config", "update-check", "--status", "--enable"])
+        with patch("affinity.cli.main.get_paths", return_value=mock_paths):
+            result = runner.invoke(cli, ["config", "update-check", "--status", "--enable"])
 
         assert result.exit_code != 0
         assert "cannot combine" in result.output.lower()

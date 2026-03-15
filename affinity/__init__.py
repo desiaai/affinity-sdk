@@ -70,6 +70,9 @@ from .exceptions import (
     WriteNotAllowedError,
 )
 
+# Field resolution
+from .field_resolver import FieldResolver
+
 # Filter builder (FR-007)
 from .filters import F, Filter, FilterExpression
 
@@ -78,6 +81,7 @@ from .inbound_webhooks import BodyRegistry, WebhookEnvelope, dispatch_webhook, p
 
 # Pagination helpers
 from .models.pagination import PaginationProgress
+from .models.types import ResolveMode
 
 # Policies
 from .policies import ExternalHookPolicy, Policies, WritePolicy
@@ -136,6 +140,9 @@ __all__ = [
     "Policies",
     # Pagination helpers
     "PaginationProgress",
+    # Field resolution
+    "FieldResolver",
+    "ResolveMode",
     # File download helpers
     "PresignedUrl",
     # Type aliases (re-exported for convenience)

@@ -127,7 +127,7 @@ If you use [Claude Code](https://docs.anthropic.com/en/docs/claude-code), instal
 ```bash
 /plugin marketplace add yaniv-golan/affinity-sdk
 /plugin install sdk@xaffinity   # SDK patterns
-/plugin install cli@xaffinity   # CLI patterns + /affinity-help
+/plugin install cli@xaffinity   # CLI patterns + hooks
 ```
 
 Plugin docs: https://yaniv-golan.github.io/affinity-sdk/latest/guides/claude-code-plugins/
@@ -235,7 +235,7 @@ with Affinity(api_key="your-key") as client:
 ### Working with Lists
 
 ```python
-from affinity import Affinity
+from affinity import Affinity, FieldResolver, ResolveMode
 from affinity.models import ListCreate
 from affinity.types import CompanyId, FieldId, FieldType, ListId, ListType
 
@@ -261,8 +261,15 @@ with Affinity(api_key="your-key") as client:
     entries = client.lists.entries(ListId(123))
 
     # List entries with field data
-    for entry in entries.all(field_types=[FieldType.LIST_SPECIFIC]):
+    for entry in entries.all(field_types=[FieldType.LIST]):
         print(f"{entry.entity.name}: {entry.fields}")
+
+    # Look up field values by name (instead of raw field IDs)
+    # See docs/public/guides/performance.md for details
+    resolver = FieldResolver(pipeline.fields)
+    for entry in entries.all(field_types=[FieldType.LIST]):
+        status = resolver.get(entry, "Status", resolve=ResolveMode.TEXT)
+        print(f"{entry.entity.name}: {status}")
 
     # Add a company to the list
     entry = entries.add_company(CompanyId(456))

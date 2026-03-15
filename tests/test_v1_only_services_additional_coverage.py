@@ -418,8 +418,22 @@ def test_v1_only_services_end_to_end_smoke_and_branch_coverage(tmp_path: Path) -
         assert seen["webhook_update"]["disabled"] is True
 
         interactions = InteractionService(http)
-        assert interactions.list(type=InteractionType.EMAIL).data[0].id == 1
-        assert interactions.list(type=InteractionType.MEETING).data == []
+        _st = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        _et = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        assert (
+            interactions.list(
+                type=InteractionType.EMAIL, person_id=PersonId(1), start_time=_st, end_time=_et
+            )
+            .data[0]
+            .id
+            == 1
+        )
+        assert (
+            interactions.list(
+                type=InteractionType.MEETING, person_id=PersonId(1), start_time=_st, end_time=_et
+            ).data
+            == []
+        )
         # type is required - verify ValueError is raised without it
         with pytest.raises(ValueError, match="type is required"):
             interactions.list()

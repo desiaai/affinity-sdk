@@ -2,11 +2,11 @@
   "_generated": {
     "warning": "DO NOT EDIT - This file is auto-generated",
     "generator": "tools/generate_mcp_command_registry.py",
-    "cliVersion": "1.0.1",
+    "cliVersion": "1.8.0",
     "sourceConfig": "mcp/.registry/mcp-commands.json"
   },
   "version": 1,
-  "cliVersion": "1.0.1",
+  "cliVersion": "1.8.0",
   "commands": [
     {
       "name": "company create",
@@ -775,10 +775,11 @@
         }
       ],
       "examples": [
+        "entry field \"Pipeline\" 12345 --get Owner --get Status",
         "entry field \"Pipeline\" 12345 --set Status \"Active\"",
         "entry field \"Pipeline\" 12345 --set \"Deal Size\" 50000"
       ],
-      "whenToUse": "Update field values on a list entry.",
+      "whenToUse": "Read or update field values on a list entry. Use --get to read specific fields (returns resolved person/company objects, matching list export format). Use --set to update.",
       "relatedCommands": [
         "entry get",
         "field ls"
@@ -975,7 +976,7 @@
         "field history field-123456 --company-id 456",
         "field history field-123456 --list-entry-id 999 --max-results 50"
       ],
-      "whenToUse": "Audit who changed a field value and when. Use to track status changes, see modification timestamps, or investigate field value history. REQUIRES exactly one entity selector: --person-id, --company-id, --opportunity-id, or --list-entry-id.",
+      "whenToUse": "Audit who changed a field value and when for a SINGLE entity. Use to track status changes, see modification timestamps, or investigate field value history. REQUIRES exactly one entity selector: --person-id, --company-id, --opportunity-id, or --list-entry-id. For bulk history across a whole list, use 'field history-bulk' instead.",
       "requiredOneOf": [
         [
           "--person-id",
@@ -986,6 +987,7 @@
       ],
       "relatedCommands": [
         "field ls",
+        "field history-bulk",
         "person get",
         "company get",
         "opportunity get",
@@ -1005,6 +1007,100 @@
         ],
         "default": 1000,
         "max": 10000
+      }
+    },
+    {
+      "name": "field history-bulk",
+      "description": "Fetch field value change history for multiple list entries.",
+      "category": "read",
+      "destructive": false,
+      "progressCapable": true,
+      "parameters": {
+        "--action-type": {
+          "type": "string",
+          "required": false,
+          "help": "Filter by action type.",
+          "choices": [
+            "create",
+            "update",
+            "delete"
+          ]
+        },
+        "--all": {
+          "type": "flag",
+          "required": false,
+          "help": "Process all entries in the list."
+        },
+        "--csv": {
+          "type": "flag",
+          "required": false,
+          "help": "Alias for --output csv."
+        },
+        "--dry-run": {
+          "type": "flag",
+          "required": false,
+          "help": "Show estimated API calls without executing."
+        },
+        "--list-entry-ids": {
+          "type": "string",
+          "required": false,
+          "help": "Comma-separated list entry IDs (mutually exclusive with --list-id)."
+        },
+        "--list-id": {
+          "type": "string",
+          "required": false,
+          "help": "List ID or name — required unless --list-entry-ids is provided.",
+          "aliases": [
+            "--list"
+          ]
+        },
+        "--max-results": {
+          "type": "int",
+          "required": false,
+          "help": "Max number of entries to process.",
+          "aliases": [
+            "--limit",
+            "-n"
+          ]
+        }
+      },
+      "positionals": [
+        {
+          "name": "FIELD_ID",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "examples": [
+        "field history-bulk field-358027 --list-id Dealflow --dry-run",
+        "field history-bulk field-358027 --list-id Dealflow --max-results 50",
+        "field history-bulk field-358027 --list-id Dealflow --all",
+        "field history-bulk field-358027 --list-entry-ids 100,200,300",
+        "field history-bulk field-358027 --list-id Dealflow --max-results 100 --action-type update"
+      ],
+      "whenToUse": "Fetch field change history across an entire list or set of entries. Use for pipeline analysis (stage transitions, funnel conversion, time-in-stage). ALWAYS use --dry-run first to estimate API calls. Two modes: (1) --list-id with --all/--max-results for list-wide scans, (2) --list-entry-ids for specific entries. Each entry = 1 API call.",
+      "relatedCommands": [
+        "field ls",
+        "field history",
+        "list export"
+      ],
+      "mcpBehavior": {
+        "limitEnforced": false,
+        "requiresDryRun": true
+      },
+      "limitConfig": {
+        "flag": "--max-results",
+        "flagAliases": [
+          "--max-results",
+          "--limit",
+          "-n"
+        ],
+        "default": 1000,
+        "max": 10000,
+        "unboundedFlag": "--all",
+        "unboundedFlagAliases": [
+          "--all"
+        ]
       }
     },
     {
@@ -1029,7 +1125,10 @@
         "--list-id": {
           "type": "string",
           "required": false,
-          "help": "Filter by list (ID or name)."
+          "help": "Filter by list (ID or name).",
+          "aliases": [
+            "--list"
+          ]
         }
       },
       "positionals": [],
@@ -1065,6 +1164,11 @@
             "outgoing"
           ]
         },
+        "--include-me": {
+          "type": "flag",
+          "required": false,
+          "help": "Auto-include your person ID (resolved via whoami)."
+        },
         "--person-id": {
           "type": "int",
           "required": false,
@@ -1088,10 +1192,11 @@
         }
       },
       "positionals": [],
-      "whenToUse": "Log a meeting, call, or email. Requires --type and --participants.",
+      "whenToUse": "Log a meeting, call, or email. Requires --type and at least one --person-id. Must include both an internal person (workspace user) and an external person (contact). Use --include-me to auto-include your person ID.",
       "relatedCommands": [
         "interaction ls",
-        "note create"
+        "note create",
+        "whoami"
       ]
     },
     {
@@ -3689,5 +3794,5 @@
       ]
     }
   ],
-  "total": 65
+  "total": 66
 }

@@ -7,9 +7,10 @@ This document defines how versions are managed across the affinity-api-x reposit
 | Component | Version Source | Versioning |
 |-----------|----------------|------------|
 | SDK + CLI | `pyproject.toml` | Single source of truth, SemVer |
-| SDK Plugin | Auto-synced | Matches SDK version |
-| CLI Plugin | Auto-synced | Matches SDK version |
+| SDK Plugin | `plugins/affinity-sdk/.claude-plugin/plugin.json` | Independent, SemVer |
+| CLI Plugin | `plugins/xaffinity-cli/.claude-plugin/plugin.json` | Independent, SemVer |
 | MCP Server | `mcp/VERSION` | Independent, declares CLI compatibility |
+| MCP Plugin | `mcp/.claude-plugin/plugin.json` | Independent, SemVer |
 
 ## Semantic Versioning Rules
 
@@ -31,6 +32,54 @@ We follow [SemVer 2.0.0](https://semver.org/). Given version `MAJOR.MINOR.PATCH`
 - Fixing bugs without changing the API
 - Documentation improvements
 - Internal refactoring with no external impact
+
+## Plugin Versioning (Independent from SDK)
+
+Plugins (SDK, CLI, MCP) are distributed via Git marketplaces, not PyPI. Their versions
+are independent from the SDK/CLI version in `pyproject.toml`. This follows
+[Anthropic's plugin guidance](https://code.claude.com/docs/en/plugins-reference#version-management):
+update the plugin version before distributing changes.
+
+### Why Independent Versioning?
+
+Plugins contain hooks, skills, and configuration that change independently from the
+SDK/CLI Python code. Examples:
+- A security fix to a hook script changes plugin behavior but not the SDK
+- A skill rewrite improves LLM guidance but doesn't touch Python code
+- Metadata changes (descriptions, author) are plugin-only
+
+Tying plugin versions to the SDK version would either:
+- Trigger unnecessary PyPI releases for plugin-only changes, or
+- Leave plugin changes unversioned (confusing for users and debugging)
+
+### When to Bump Plugin Versions
+
+| Change | Bump |
+|--------|------|
+| Hook behavior change (e.g., security fix) | PATCH |
+| Skill content rewrite | PATCH |
+| New skill or hook added | MINOR |
+| Skill or hook removed | MAJOR |
+| Metadata-only changes (description, author) | No bump needed |
+
+### Plugin Version Files
+
+| Plugin | Version Source |
+|--------|---------------|
+| SDK Plugin | `plugins/affinity-sdk/.claude-plugin/plugin.json` → `version` field |
+| CLI Plugin | `plugins/xaffinity-cli/.claude-plugin/plugin.json` → `version` field |
+| MCP Plugin | `mcp/.claude-plugin/plugin.json` → `version` field |
+
+Plugin versions are **not** auto-synced from `pyproject.toml`. Update them manually
+when plugin content changes. The pre-commit hook validates that plugin.json files
+have valid JSON but does not enforce version sync.
+
+### Relationship to SDK Version
+
+- Plugin versions MAY diverge from the SDK version
+- When an SDK release also changes plugin content, bump both
+- Plugin cache invalidation is based on git commit hash, not version number,
+  so version bumps are for human traceability, not distribution mechanics
 
 ## Pre-1.0 Versioning (Current State)
 
@@ -81,22 +130,24 @@ This approach is robust regardless of how many commits are pushed together, squa
 ### SDK Release
 
 1. Update version in `pyproject.toml`
-2. Run pre-commit (syncs plugin versions automatically)
-3. Update `CHANGELOG.md` with changes
-4. If CLI output changed: check MCP compatibility
-5. Commit and push to `main` (or merge PR)
-6. **Release runs automatically** — tag created post-release
+2. If plugin content also changed: bump plugin versions in their `plugin.json` files
+3. Run pre-commit
+4. Update `CHANGELOG.md` with changes (see [Changelog Format](#changelog-format) below)
+5. If CLI output changed: check MCP compatibility
+6. Commit and push to `main` (or merge PR)
+7. **Release runs automatically** — tag created post-release
 
 SDK releases include MCPB bundles (built from the same commit) for convenience, so users don't need to find separate MCP releases.
 
 ### MCP Release
 
 1. Update `mcp/VERSION`
-2. Update `mcp/CHANGELOG.md`
-3. If CLI requirements changed: update `mcp/COMPATIBILITY`
-4. Run pre-commit (syncs plugin.json and server.meta.json automatically)
-5. Commit and push to `main` (or merge PR)
-6. **Release runs automatically** — tag created post-release
+2. If MCP plugin content also changed: bump version in `mcp/.claude-plugin/plugin.json`
+3. Update `mcp/CHANGELOG.md` (see [Changelog Format](#changelog-format) below)
+4. If CLI requirements changed: update `mcp/COMPATIBILITY`
+5. Run pre-commit (syncs server.meta.json from `mcp/VERSION`)
+6. Commit and push to `main` (or merge PR)
+7. **Release runs automatically** — tag created post-release
 
 ### Manual Tag Release
 
@@ -139,14 +190,16 @@ run_xaffinity_readonly person ls --query "test" --output json --quiet
 | File | Purpose | Updated By |
 |------|---------|------------|
 | `pyproject.toml` | SDK/CLI version | Manual |
-| `plugins/affinity-sdk/.claude-plugin/plugin.json` | Plugin version | Pre-commit hook |
-| `plugins/xaffinity-cli/.claude-plugin/plugin.json` | Plugin version | Pre-commit hook |
+| `plugins/affinity-sdk/.claude-plugin/plugin.json` | SDK plugin version | Manual |
+| `plugins/xaffinity-cli/.claude-plugin/plugin.json` | CLI plugin version | Manual |
 | `mcp/VERSION` | MCP distribution version | Manual |
-| `mcp/server.d/server.meta.json` | MCP server metadata | Pre-commit hook |
-| `mcp/.claude-plugin/plugin.json` | MCP plugin version | Pre-commit hook |
+| `mcp/server.d/server.meta.json` | MCP server metadata | Pre-commit hook (from `mcp/VERSION`) |
+| `mcp/.claude-plugin/plugin.json` | MCP plugin version | Manual |
 | `mcp/COMPATIBILITY` | CLI version requirements | Manual |
 | `mcp/mcpb.conf` | MCPB bundle config | Manual (version from VERSION) |
 | `mcp/mcp-bash.lock` | MCP-bash framework version + commit hash | Manual |
+| `mcp/mcp-publisher.lock` | MCP Registry publisher CLI version | Manual |
+| `mcp/server.json` | MCP Registry metadata template (patched by CI) | Manual (version/hash patched at release time) |
 
 ## MCP-Bash Framework Pinning
 
@@ -165,20 +218,62 @@ git ls-remote https://github.com/yaniv-golan/mcp-bash-framework.git 'vX.Y.Z^{}'
 # 3. Update mcp/CHANGELOG.md
 ```
 
+## Changelog Format
+
+Both `CHANGELOG.md` (SDK/CLI) and `mcp/CHANGELOG.md` follow [Keep a Changelog](https://keepachangelog.com/)
+with one addition: every version entry **must** start with a `### Highlights` section.
+
+```markdown
+## [1.6.0] - 2026-02-16
+
+### Highlights
+
+1-3 sentences in plain language summarizing why users should upgrade.
+Write for the user, not the developer — focus on what's now possible
+or what problem is fixed, not internal implementation details.
+
+### Added
+- ...
+
+### Fixed
+- ...
+```
+
+**Why Highlights matter:** The release workflow (`tools/generate_release_notes.py`) reads
+the changelog and restructures it into GitHub Release notes. The Highlights section
+becomes the first thing users see in release notifications and RSS feeds. Without it,
+the release notes lack context.
+
+**Guidelines for writing Highlights:**
+- Use plain language ("You can now..." not "Changed `InteractionService.list()`...")
+- For breaking changes, mention them with a **Breaking:** prefix and a brief migration hint
+- For patch releases with only fixes, one sentence is fine
+- For feature releases, summarize the 1-2 most impactful additions
+
 ## Release Checklist
 
 ### SDK Release
 - [ ] Version bumped in `pyproject.toml`
-- [ ] Pre-commit ran (plugin versions synced)
-- [ ] `CHANGELOG.md` updated
+- [ ] If plugin content also changed: plugin versions bumped in their `plugin.json` files
+- [ ] Pre-commit ran
+- [ ] `CHANGELOG.md` updated with `### Highlights` and categorized changes
 - [ ] If CLI output changed: MCP tested and COMPATIBILITY checked
 - [ ] Changes merged to `main`
 - [ ] Verify release workflow completed successfully
 
+### Plugin-Only Release (no SDK/CLI code changes)
+- [ ] Version bumped in affected `plugin.json` file(s)
+- [ ] `CHANGELOG.md` updated (under plugin section)
+- [ ] Pre-commit ran
+- [ ] Changes merged to `main`
+- [ ] No PyPI release triggered (SDK version unchanged)
+
 ### MCP Release
 - [ ] Version bumped in `mcp/VERSION`
-- [ ] `mcp/CHANGELOG.md` updated
+- [ ] If MCP plugin content also changed: version bumped in `mcp/.claude-plugin/plugin.json`
+- [ ] `mcp/CHANGELOG.md` updated with `### Highlights` and categorized changes
 - [ ] If CLI requirements changed: `mcp/COMPATIBILITY` verified
-- [ ] Pre-commit ran (syncs plugin.json and server.meta.json)
+- [ ] Pre-commit ran (syncs server.meta.json)
 - [ ] Changes merged to `main`
 - [ ] Verify release workflow completed successfully
+- [ ] Verify MCP Registry publish step succeeded (non-blocking; check workflow annotations)
