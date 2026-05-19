@@ -36,6 +36,10 @@ from mcp.types import TextContent, Tool
 # Environment-based security policies
 READ_ONLY_MODE = os.environ.get("AFFINITY_MCP_READ_ONLY") == "1"
 DISABLE_DESTRUCTIVE = os.environ.get("AFFINITY_MCP_DISABLE_DESTRUCTIVE") == "1"
+# Defaults ON. Set AFFINITY_MCP_FILTER_PREFLIGHT=0 to disable the preflight
+# (e.g. if Affinity later supports filtering on a field currently in
+# _BUILTIN_FILTER_FIELDS and we need an ops escape hatch before a redeploy).
+FILTER_PREFLIGHT_ENABLED = os.environ.get("AFFINITY_MCP_FILTER_PREFLIGHT", "1") != "0"
 
 # Pagination safety limits
 DEFAULT_LIMIT = 1000
@@ -568,8 +572,11 @@ async def serve() -> None:
                 # Preflight: Affinity V2 silently drops --filter on built-in
                 # identifiers. Refuse loudly with a recovery hint instead of
                 # letting the call return an unfiltered list disguised as a
-                # filtered one.
-                violating_field = _builtin_filter_violation(argv)
+                # filtered one. Gated by AFFINITY_MCP_FILTER_PREFLIGHT for
+                # ops escape-hatch if Affinity changes the API.
+                violating_field = (
+                    _builtin_filter_violation(argv) if FILTER_PREFLIGHT_ENABLED else None
+                )
                 if violating_field:
                     return [
                         TextContent(
@@ -673,8 +680,11 @@ async def serve() -> None:
                         TextContent(type="text", text=json.dumps(_make_error("blocked_flag", err)))
                     ]
 
-                # Same V2 filter-on-built-in guard as execute-read-command.
-                violating_field = _builtin_filter_violation(argv)
+                # Same V2 filter-on-built-in guard as execute-read-command
+                # (gated by the same AFFINITY_MCP_FILTER_PREFLIGHT env var).
+                violating_field = (
+                    _builtin_filter_violation(argv) if FILTER_PREFLIGHT_ENABLED else None
+                )
                 if violating_field:
                     return [
                         TextContent(

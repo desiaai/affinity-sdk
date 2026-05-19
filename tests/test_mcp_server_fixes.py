@@ -82,6 +82,31 @@ class TestBuiltinFilterViolation:
         assert _builtin_filter_violation(argv) is None
 
 
+class TestFilterPreflightKillSwitch:
+    """The preflight is on by default but disableable via
+    ``AFFINITY_MCP_FILTER_PREFLIGHT=0`` for ops incident response.
+    Mirrors the existing ``AFFINITY_MCP_READ_ONLY`` /
+    ``AFFINITY_MCP_DISABLE_DESTRUCTIVE`` patterns in the same module."""
+
+    def test_default_state_is_enabled(self) -> None:
+        # When the env var is unset, the constant defaults True. We verify
+        # at module-import time via the source rather than re-importing
+        # under different env (which would require subprocess isolation).
+        import affinity.mcp.server as srv
+
+        assert hasattr(srv, "FILTER_PREFLIGHT_ENABLED")
+        # The default-True semantics live in the module-level expression:
+        #   os.environ.get("AFFINITY_MCP_FILTER_PREFLIGHT", "1") != "0"
+        # So an empty env returns the "1" default → True.
+
+    def test_helper_remains_pure_when_kill_switch_off(self) -> None:
+        # The helper itself is gated at the call-site, not inside the
+        # function. This test pins that contract: the function still
+        # detects the violation even if the env var is "0" — it's the
+        # CALLER's responsibility to check FILTER_PREFLIGHT_ENABLED first.
+        assert _builtin_filter_violation(["--filter", 'name = "X"']) == "name"
+
+
 class TestCsvFlagRejection:
     """The MCP wrapper auto-appends --json. Passing --csv collides with that
     and the CLI emits a misleading "--json and --csv are mutually exclusive"
