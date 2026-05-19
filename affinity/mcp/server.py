@@ -179,8 +179,21 @@ def _get_all_commands() -> list[dict[str, Any]]:
         except Exception:
             continue
 
-    _command_cache = {"commands": all_commands}
-    return all_commands
+    # Dedupe by command name. Some commands surface under multiple parent
+    # groups in `xaffinity <group> --help --json` (e.g. `list-entry`
+    # subcommands also appear inside the `list` group's help, and some
+    # subcommands like `interaction ls` show up 5+ times). Without
+    # dedup, discover-commands repeats them in its output.
+    seen: set[str] = set()
+    unique_commands: list[dict[str, Any]] = []
+    for cmd in all_commands:
+        name = cmd.get("name")
+        if isinstance(name, str) and name not in seen:
+            seen.add(name)
+            unique_commands.append(cmd)
+
+    _command_cache = {"commands": unique_commands}
+    return unique_commands
 
 
 def _get_command_info(command_name: str) -> dict[str, Any] | None:
@@ -281,6 +294,21 @@ def _validate_argv(argv: list[str]) -> tuple[bool, str]:
             return (
                 False,
                 f"Flag '{arg}' is blocked via MCP to prevent unbounded scans. Use --max-results instead.",
+            )
+        if arg == "--csv":
+            # The MCP wrapper auto-appends --json so it can parse the
+            # result; the CLI then errors out with "--json and --csv are
+            # mutually exclusive". Reject up front with a useful hint
+            # instead of letting that confusing CLI message reach the
+            # caller (observed agents misreading it as "I should drop
+            # --json" when they never passed --json — the wrapper did).
+            return (
+                False,
+                (
+                    "Flag '--csv' is not supported via MCP — the wrapper "
+                    "requires JSON output for parsing. For large result "
+                    "sets, use --max-results with --cursor pagination."
+                ),
             )
     return True, ""
 

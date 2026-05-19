@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from affinity.mcp.server import _builtin_filter_violation
+from affinity.mcp.server import _builtin_filter_violation, _get_all_commands, _validate_argv
 
 
 class TestBuiltinFilterViolation:
@@ -80,6 +80,57 @@ class TestBuiltinFilterViolation:
     )
     def test_passes_safe_argvs(self, argv: list[str]) -> None:
         assert _builtin_filter_violation(argv) is None
+
+
+class TestCsvFlagRejection:
+    """The MCP wrapper auto-appends --json. Passing --csv collides with that
+    and the CLI emits a misleading "--json and --csv are mutually exclusive"
+    error (the agent never passed --json — the wrapper did). Reject --csv
+    at the wrapper boundary with a useful hint."""
+
+    def test_csv_flag_is_rejected(self) -> None:
+        valid, err = _validate_argv(["--csv", "--max-results", "100"])
+        assert valid is False
+        assert "--csv" in err
+        assert "JSON" in err  # hint mentions JSON-output requirement
+        assert "pagination" in err.lower() or "cursor" in err.lower()
+
+    def test_csv_after_other_flags_still_rejected(self) -> None:
+        valid, err = _validate_argv(["--max-results", "100", "--csv"])
+        assert valid is False
+        assert "--csv" in err
+
+    def test_argv_without_csv_passes(self) -> None:
+        valid, err = _validate_argv(["--max-results", "100"])
+        assert valid is True
+        assert err == ""
+
+    def test_csv_substring_in_value_does_not_match(self) -> None:
+        # A filter value containing "--csv" must not trigger the guard.
+        valid, err = _validate_argv(["--filter", "Notes =~ '--csv flag'"])
+        assert valid is True
+
+
+class TestCommandDedup:
+    """`xaffinity <group> --help --json` returns subcommands of that group,
+    and some commands appear under multiple parent groups (notably
+    `list-entry` subcommands are also exposed under `list`, and some
+    aliases cause `interaction ls` to show up 5+ times). _get_all_commands
+    must dedupe by name so discover-commands doesn't repeat them."""
+
+    def test_get_all_commands_returns_unique_names(self) -> None:
+        # _get_all_commands shells out to the CLI; if uvx hasn't installed
+        # the package the CLI binary won't be on PATH and this test should
+        # be skipped rather than fail (mirrors how other tests in the
+        # project handle the optional CLI dependency).
+        try:
+            commands = _get_all_commands()
+        except FileNotFoundError:
+            pytest.skip("xaffinity CLI not on PATH in this env")
+        names = [c.get("name") for c in commands if c.get("name")]
+        assert len(names) == len(set(names)), (
+            f"command list contains duplicates: {sorted([n for n in names if names.count(n) > 1])}"
+        )
 
 
 def _server_source() -> str:
