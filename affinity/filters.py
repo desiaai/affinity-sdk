@@ -4,24 +4,30 @@ Filter builder for V2 API filtering support.
 Provides a type-safe, Pythonic way to build filter expressions for V2 list endpoints.
 The builder handles proper escaping and quoting of user inputs.
 
+IMPORTANT: V2 filters are only honored on CUSTOM fields. Built-in fields
+(name, domain, domains, id, firstName, lastName, email, emails) are silently
+ignored by the API — the endpoint returns the unfiltered list with no error
+or warning. To filter by built-in identifier, fetch then filter client-side,
+or use the CLI's ``--query`` for free-text search.
+
 Example:
     from affinity.filters import Filter, F
 
-    # Using the builder (recommended)
+    # Using the builder (recommended) — custom fields only
     filter = (
-        F.field("name").contains("Acme") &
-        F.field("status").equals("Active")
+        F.field("Industry").contains("Software") &
+        F.field("Status").equals("Active")
     )
     companies = client.companies.list(filter=filter)
 
     # Or build complex filters
     filter = (
-        (F.field("name").contains("Corp") | F.field("name").contains("Inc")) &
+        (F.field("Sector").contains("Fintech") | F.field("Sector").contains("Insurtech")) &
         ~F.field("archived").equals(True)
     )
 
-    # Raw filter string escape hatch (power users)
-    companies = client.companies.list(filter='name =~ "Acme"')
+    # Raw filter string escape hatch (power users) — custom fields only
+    companies = client.companies.list(filter='Industry =~ "Software"')
 """
 
 from __future__ import annotations
@@ -331,13 +337,13 @@ class Filter:
     """
     Factory for building filter expressions.
 
-    Example:
+    Example (use CUSTOM field names — V2 silently ignores built-ins):
         # Simple comparison
-        Filter.field("name").contains("Acme")
+        Filter.field("Industry").contains("Software")
 
         # Complex boolean logic
-        (Filter.field("status").equals("Active") &
-         Filter.field("type").in_list(["customer", "prospect"]))
+        (Filter.field("Status").equals("Active") &
+         Filter.field("Segment").in_list(["customer", "prospect"]))
 
         # Negation
         ~Filter.field("archived").equals(True)
@@ -357,7 +363,9 @@ class Filter:
         The expression is passed directly to the API without modification.
 
         Args:
-            expression: Raw filter string (e.g., 'name =~ "Acme"')
+            expression: Raw filter string (e.g., 'Industry =~ "Software"').
+                Built-in fields like ``name``/``domain`` are silently ignored
+                by the V2 API — use a custom field.
         """
         return RawFilter(expression)
 

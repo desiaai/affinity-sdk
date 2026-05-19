@@ -2,7 +2,18 @@
 Pytest configuration and fixtures for Affinity SDK tests.
 """
 
+import contextlib
 from collections.abc import Iterator
+
+# `tests/mcp/__init__.py` makes pytest register that directory as a top-level
+# `mcp` package (no `tests/__init__.py` exists to anchor a `tests.mcp.*` path).
+# That shadows the installed `mcp` Python package and breaks any test that
+# eventually imports `affinity.mcp.server` (which does `from mcp.server import
+# Server`). Eagerly importing the installed package here, before pytest
+# collects any test module under `tests/mcp/`, caches the real module in
+# `sys.modules` so subsequent resolution wins against the test-dir shadow.
+with contextlib.suppress(ModuleNotFoundError):  # mcp is an optional extra
+    import mcp.server  # noqa: F401
 
 import pytest
 

@@ -22,9 +22,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 from mcp.server import Server
@@ -34,6 +36,10 @@ from mcp.types import TextContent, Tool
 # Environment-based security policies
 READ_ONLY_MODE = os.environ.get("AFFINITY_MCP_READ_ONLY") == "1"
 DISABLE_DESTRUCTIVE = os.environ.get("AFFINITY_MCP_DISABLE_DESTRUCTIVE") == "1"
+# Defaults ON. Set AFFINITY_MCP_FILTER_PREFLIGHT=0 to disable the preflight
+# (e.g. if Affinity later supports filtering on a field currently in
+# _BUILTIN_FILTER_FIELDS and we need an ops escape hatch before a redeploy).
+FILTER_PREFLIGHT_ENABLED = os.environ.get("AFFINITY_MCP_FILTER_PREFLIGHT", "1") != "0"
 
 # Pagination safety limits
 DEFAULT_LIMIT = 1000
@@ -51,7 +57,12 @@ _INTERACTION_ENUMS = {
         {"value": "call", "label": "Phone Call", "description": "Voice call"},
         {"value": "meeting", "label": "Meeting", "description": "Scheduled meeting"},
         {"value": "email", "label": "Email", "description": "Email correspondence"},
-        {"value": "chat-message", "label": "Chat Message", "description": "Instant message", "aliases": ["chat"]},
+        {
+            "value": "chat-message",
+            "label": "Chat Message",
+            "description": "Instant message",
+            "aliases": ["chat"],
+        },
     ],
     "interactionDirections": [
         {"value": "incoming", "label": "Incoming", "description": "Received from contact"},
@@ -137,9 +148,21 @@ def _get_all_commands() -> list[dict[str, Any]]:
 
     # All command groups including missing ones from review
     groups = [
-        "company", "person", "list", "list-entry", "opportunity",
-        "note", "reminder", "webhook", "interaction", "field", "task",
-        "relationship-strength", "file-url", "config", "whoami"
+        "company",
+        "person",
+        "list",
+        "list-entry",
+        "opportunity",
+        "note",
+        "reminder",
+        "webhook",
+        "interaction",
+        "field",
+        "task",
+        "relationship-strength",
+        "file-url",
+        "config",
+        "whoami",
     ]
 
     all_commands: list[dict[str, Any]] = []
@@ -160,8 +183,21 @@ def _get_all_commands() -> list[dict[str, Any]]:
         except Exception:
             continue
 
-    _command_cache = {"commands": all_commands}
-    return all_commands
+    # Dedupe by command name. Some commands surface under multiple parent
+    # groups in `xaffinity <group> --help --json` (e.g. `list-entry`
+    # subcommands also appear inside the `list` group's help, and some
+    # subcommands like `interaction ls` show up 5+ times). Without
+    # dedup, discover-commands repeats them in its output.
+    seen: set[str] = set()
+    unique_commands: list[dict[str, Any]] = []
+    for cmd in all_commands:
+        name = cmd.get("name")
+        if isinstance(name, str) and name not in seen:
+            seen.add(name)
+            unique_commands.append(cmd)
+
+    _command_cache = {"commands": unique_commands}
+    return unique_commands
 
 
 def _get_command_info(command_name: str) -> dict[str, Any] | None:
@@ -259,8 +295,81 @@ def _validate_argv(argv: list[str]) -> tuple[bool, str]:
     """Validate argv for blocked flags. Returns (valid, error_message)."""
     for arg in argv:
         if arg in BLOCKED_FLAGS:
-            return False, f"Flag '{arg}' is blocked via MCP to prevent unbounded scans. Use --max-results instead."
+            return (
+                False,
+                f"Flag '{arg}' is blocked via MCP to prevent unbounded scans. Use --max-results instead.",
+            )
+        if arg == "--csv":
+            # The MCP wrapper auto-appends --json so it can parse the
+            # result; the CLI then errors out with "--json and --csv are
+            # mutually exclusive". Reject up front with a useful hint
+            # instead of letting that confusing CLI message reach the
+            # caller (observed agents misreading it as "I should drop
+            # --json" when they never passed --json — the wrapper did).
+            return (
+                False,
+                (
+                    "Flag '--csv' is not supported via MCP — the wrapper "
+                    "requires JSON output for parsing. For large result "
+                    "sets, use --max-results with --cursor pagination."
+                ),
+            )
     return True, ""
+
+
+# Filter targets that the Affinity V2 API silently drops. Confirmed
+# empirically against /companies (all three of `name =`, `name =~`, and
+# `domain =` returned the unfiltered list head with no error or warning).
+# Per docs/public/cli/commands.md: "--filter only works with custom
+# fields. To filter on built-in properties like name, domain, etc.,
+# use --json output with jq." Surface this loudly instead of letting
+# silent drops masquerade as "no matches" or "wrong filter syntax".
+_BUILTIN_FILTER_FIELDS = frozenset(
+    {
+        "name",
+        "domain",
+        "domains",
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "emails",
+    }
+)
+
+
+# A bare identifier at the start of the filter expression. Matches the
+# `_read_unquoted('=!&|()"')` behavior in the CLI's filter tokenizer
+# (affinity/filters.py): an unquoted field name ends at any whitespace
+# or any operator-introducing character. So we accept both `name = "X"`
+# (whitespace-separated) and `name="X"` (operator-adjacent) — both are
+# valid filter syntax and both must trigger the preflight.
+_FILTER_FIELD_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _builtin_filter_violation(argv: list[str]) -> str | None:
+    """Return the offending built-in field name if argv contains a --filter
+    expression targeting one, else None.
+
+    Handles both Click argv forms the CLI accepts:
+        ``--filter`` ``name = "Acme"``    (two-arg, space-separated)
+        ``--filter`` ``name="Acme"``       (two-arg, operator-adjacent)
+        ``--filter=name = "Acme"``         (one-arg, equals-prefixed)
+        ``--filter=name="Acme"``           (one-arg, fully fused)
+    """
+    for i, a in enumerate(argv):
+        # Two-arg form: `--filter <expr>`
+        if a == "--filter" and i + 1 < len(argv):
+            expr = argv[i + 1]
+        # One-arg form: `--filter=<expr>` (Click accepts this for any long option)
+        elif a.startswith("--filter="):
+            expr = a[len("--filter=") :]
+        else:
+            continue
+        m = _FILTER_FIELD_RE.match(expr)
+        if m and m.group(1) in _BUILTIN_FILTER_FIELDS:
+            return m.group(1)
+    return None
 
 
 def _inject_default_limit(argv: list[str]) -> list[str]:
@@ -290,13 +399,13 @@ TOOLS: list[Tool] = [
                     "type": "string",
                     "enum": ["read", "write", "all"],
                     "default": "all",
-                    "description": "Filter: 'read', 'write', 'all'"
+                    "description": "Filter: 'read', 'write', 'all'",
                 },
                 "detail": {
                     "type": "string",
                     "enum": ["list", "summary", "full"],
                     "default": "summary",
-                    "description": "Detail level"
+                    "description": "Detail level",
                 },
                 "limit": {"type": "integer", "default": 10, "description": "Max results"},
             },
@@ -304,7 +413,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="execute-read-command",
-        description="Execute a read-only CLI command. Use discover-commands first.\n\n--json added automatically. --all flag blocked (use --max-results).\n\nExamples:\n- command='person get', argv=['email:john@example.com']\n- command='company ls', argv=['--filter', 'name =~ \"Acme\"', '--max-results', '50']",
+        description="Execute a read-only CLI command. Use discover-commands first.\n\n--json added automatically. --all flag blocked (use --max-results).\n\nNOTE: --filter is only honored on CUSTOM fields. The Affinity V2 API silently drops --filter on built-in fields (name, domain, domains, id, firstName, lastName, email, emails) and returns the unfiltered list. This MCP server refuses such filters with error.type='unsupported_filter'. To resolve an entity by built-in identifier, use 'company get name:<value>' or 'person get email:<value>'; on ambiguity the response includes error.details.matches with candidate IDs. For free-text search use '--query <text>'.\n\nExamples:\n- command='person get', argv=['email:john@example.com']\n- command='company get', argv=['name:Acme']\n- command='company ls', argv=['--filter', 'Industry = \"Software\"', '--max-results', '50']  # custom field, works\n- command='company ls', argv=['--query', 'Acme', '--max-results', '20']  # free-text search across built-ins",
         inputSchema={
             "type": "object",
             "required": ["command"],
@@ -324,14 +433,18 @@ TOOLS: list[Tool] = [
             "properties": {
                 "command": {"type": "string", "description": "CLI command"},
                 "argv": {"type": "array", "items": {"type": "string"}, "description": "Arguments"},
-                "confirm": {"type": "boolean", "default": False, "description": "Required for delete commands"},
+                "confirm": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Required for delete commands",
+                },
                 "timeout": {"type": "integer", "default": 60, "description": "Timeout seconds"},
             },
         },
     ),
     Tool(
         name="query",
-        description="Execute structured query. Supports filtering, includes, aggregates.\n\nEntities: persons, companies, opportunities, listEntries, interactions, notes\n\nExamples:\n- {\"from\": \"persons\", \"where\": {\"path\": \"email\", \"op\": \"contains\", \"value\": \"@acme.com\"}, \"limit\": 50}",
+        description='Execute structured query. Supports filtering, includes, aggregates.\n\nEntities: persons, companies, opportunities, listEntries, interactions, notes\n\nExamples:\n- {"from": "persons", "where": {"path": "email", "op": "contains", "value": "@acme.com"}, "limit": 50}',
         inputSchema={
             "type": "object",
             "required": ["query"],
@@ -340,7 +453,17 @@ TOOLS: list[Tool] = [
                     "type": "object",
                     "required": ["from"],
                     "properties": {
-                        "from": {"type": "string", "enum": ["persons", "companies", "opportunities", "listEntries", "interactions", "notes"]},
+                        "from": {
+                            "type": "string",
+                            "enum": [
+                                "persons",
+                                "companies",
+                                "opportunities",
+                                "listEntries",
+                                "interactions",
+                                "notes",
+                            ],
+                        },
                         "where": {"type": "object"},
                         "select": {"type": "array", "items": {"type": "string"}},
                         "include": {"type": "array", "items": {"type": "string"}},
@@ -351,8 +474,16 @@ TOOLS: list[Tool] = [
                     },
                 },
                 "dry_run": {"type": "boolean", "default": False},
-                "format": {"type": "string", "enum": ["json", "toon", "markdown", "csv", "jsonl"], "default": "json"},
-                "max_records": {"type": "integer", "default": 1000, "description": "Max records (default 1000, max 10000)"},
+                "format": {
+                    "type": "string",
+                    "enum": ["json", "toon", "markdown", "csv", "jsonl"],
+                    "default": "json",
+                },
+                "max_records": {
+                    "type": "integer",
+                    "default": 1000,
+                    "description": "Max records (default 1000, max 10000)",
+                },
             },
         },
     ),
@@ -431,14 +562,53 @@ async def serve() -> None:
                 # Validate command is read category
                 cmd_info = _get_command_info(command)
                 if cmd_info and cmd_info.get("category") == "write":
-                    return [TextContent(type="text", text=json.dumps(
-                        _make_error("category_mismatch", f"'{command}' is a write command. Use execute-write-command.")
-                    ))]
+                    return [
+                        TextContent(
+                            type="text",
+                            text=json.dumps(
+                                _make_error(
+                                    "category_mismatch",
+                                    f"'{command}' is a write command. Use execute-write-command.",
+                                )
+                            ),
+                        )
+                    ]
 
                 # Validate argv
                 valid, err = _validate_argv(argv)
                 if not valid:
-                    return [TextContent(type="text", text=json.dumps(_make_error("blocked_flag", err)))]
+                    return [
+                        TextContent(type="text", text=json.dumps(_make_error("blocked_flag", err)))
+                    ]
+
+                # Preflight: Affinity V2 silently drops --filter on built-in
+                # identifiers. Refuse loudly with a recovery hint instead of
+                # letting the call return an unfiltered list disguised as a
+                # filtered one. Gated by AFFINITY_MCP_FILTER_PREFLIGHT for
+                # ops escape-hatch if Affinity changes the API.
+                violating_field = (
+                    _builtin_filter_violation(argv) if FILTER_PREFLIGHT_ENABLED else None
+                )
+                if violating_field:
+                    return [
+                        TextContent(
+                            type="text",
+                            text=json.dumps(
+                                _make_error(
+                                    "unsupported_filter",
+                                    f"--filter on built-in field '{violating_field}' is not supported by the "
+                                    f"Affinity V2 API; the request would silently return the unfiltered list. "
+                                    f"To resolve an entity by built-in identifier, call execute-read-command "
+                                    f"with command='company get' (or 'person get') and argv=['name:<value>'] "
+                                    f"or argv=['email:<value>'] — on ambiguity the response contains "
+                                    f"error.type='ambiguous_resolution' with error.details.matches listing "
+                                    f"candidate IDs. For free-text search use --query '<text>' instead of "
+                                    f"--filter. --filter is only supported on custom fields (e.g. "
+                                    f"'Industry = \"Software\"').",
+                                )
+                            ),
+                        )
+                    ]
 
                 # Inject default limit
                 argv = _inject_default_limit(argv)
@@ -448,14 +618,24 @@ async def serve() -> None:
 
                 result = _run_cli(full_args, timeout=timeout)
                 result["_executed"] = ["xaffinity"] + full_args
-                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+                return [
+                    TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))
+                ]
 
             elif name == "execute-write-command":
                 # Block in read-only mode
                 if READ_ONLY_MODE:
-                    return [TextContent(type="text", text=json.dumps(
-                        _make_error("read_only_mode", "Write commands blocked. AFFINITY_MCP_READ_ONLY=1")
-                    ))]
+                    return [
+                        TextContent(
+                            type="text",
+                            text=json.dumps(
+                                _make_error(
+                                    "read_only_mode",
+                                    "Write commands blocked. AFFINITY_MCP_READ_ONLY=1",
+                                )
+                            ),
+                        )
+                    ]
 
                 command = arguments["command"]
                 argv = arguments.get("argv", [])
@@ -466,25 +646,72 @@ async def serve() -> None:
                 cmd_info = _get_command_info(command)
                 if cmd_info:
                     if cmd_info.get("category") == "read":
-                        return [TextContent(type="text", text=json.dumps(
-                            _make_error("category_mismatch", f"'{command}' is a read command. Use execute-read-command.")
-                        ))]
+                        return [
+                            TextContent(
+                                type="text",
+                                text=json.dumps(
+                                    _make_error(
+                                        "category_mismatch",
+                                        f"'{command}' is a read command. Use execute-read-command.",
+                                    )
+                                ),
+                            )
+                        ]
 
                     # Check destructive policy
                     if cmd_info.get("destructive"):
                         if DISABLE_DESTRUCTIVE:
-                            return [TextContent(type="text", text=json.dumps(
-                                _make_error("destructive_disabled", f"Destructive commands blocked. AFFINITY_MCP_DISABLE_DESTRUCTIVE=1")
-                            ))]
+                            return [
+                                TextContent(
+                                    type="text",
+                                    text=json.dumps(
+                                        _make_error(
+                                            "destructive_disabled",
+                                            f"Destructive commands blocked. AFFINITY_MCP_DISABLE_DESTRUCTIVE=1",
+                                        )
+                                    ),
+                                )
+                            ]
                         if not confirm:
-                            return [TextContent(type="text", text=json.dumps(
-                                _make_error("confirmation_required", f"'{command}' is destructive. Set confirm=true to proceed.")
-                            ))]
+                            return [
+                                TextContent(
+                                    type="text",
+                                    text=json.dumps(
+                                        _make_error(
+                                            "confirmation_required",
+                                            f"'{command}' is destructive. Set confirm=true to proceed.",
+                                        )
+                                    ),
+                                )
+                            ]
 
                 # Validate argv
                 valid, err = _validate_argv(argv)
                 if not valid:
-                    return [TextContent(type="text", text=json.dumps(_make_error("blocked_flag", err)))]
+                    return [
+                        TextContent(type="text", text=json.dumps(_make_error("blocked_flag", err)))
+                    ]
+
+                # Same V2 filter-on-built-in guard as execute-read-command
+                # (gated by the same AFFINITY_MCP_FILTER_PREFLIGHT env var).
+                violating_field = (
+                    _builtin_filter_violation(argv) if FILTER_PREFLIGHT_ENABLED else None
+                )
+                if violating_field:
+                    return [
+                        TextContent(
+                            type="text",
+                            text=json.dumps(
+                                _make_error(
+                                    "unsupported_filter",
+                                    f"--filter on built-in field '{violating_field}' is not supported by the "
+                                    f"Affinity V2 API and would silently target the unfiltered set. "
+                                    f"Resolve the target entity first via 'company get name:<value>' / "
+                                    f"'person get email:<value>', then operate on the returned ID.",
+                                )
+                            ),
+                        )
+                    ]
 
                 cmd_parts = command.split()
                 full_args = cmd_parts + argv
@@ -495,7 +722,9 @@ async def serve() -> None:
 
                 result = _run_cli(full_args, timeout=timeout)
                 result["_executed"] = ["xaffinity"] + full_args
-                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+                return [
+                    TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))
+                ]
 
             elif name == "query":
                 query_obj = arguments["query"]
@@ -503,13 +732,43 @@ async def serve() -> None:
                 fmt = arguments.get("format", "json")
                 max_records = min(arguments.get("max_records", DEFAULT_LIMIT), MAX_LIMIT)
 
-                query_json = json.dumps(query_obj)
-                args = ["query", "--stdin", "--output", fmt, "--max-records", str(max_records)]
-                if dry_run:
-                    args.append("--dry-run")
-
-                result = _run_cli(args, timeout=300, input_data=query_json)
-                return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+                # Write query to a temp file and pass via --file. The CLI's
+                # query subcommand does not expose --stdin; the bash MCP
+                # wrapper at mcp/tools/query/tool.sh switched to --file in
+                # commit dada1ad after stdin pipeline issues in VM
+                # environments. This Python server was missed by that fix
+                # and every call previously failed with
+                # `usage_error: "No such option '--stdin'"`.
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    suffix=".json",
+                    prefix="xaff-query-",
+                    delete=False,
+                    encoding="utf-8",
+                ) as tf:
+                    tf.write(json.dumps(query_obj))
+                    query_path = tf.name
+                try:
+                    args = [
+                        "query",
+                        "--file",
+                        query_path,
+                        "--output",
+                        fmt,
+                        "--max-records",
+                        str(max_records),
+                    ]
+                    if dry_run:
+                        args.append("--dry-run")
+                    result = _run_cli(args, timeout=300)
+                finally:
+                    try:
+                        os.unlink(query_path)
+                    except OSError:
+                        pass
+                return [
+                    TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))
+                ]
 
             elif name == "get-entity-dossier":
                 entity_type = arguments["entityType"]
@@ -532,36 +791,58 @@ async def serve() -> None:
                     dossier["details"] = entity_result["data"].get(entity_type, {})
 
                 if entity_type == "person":
-                    rs_result = _run_cli(["relationship-strength", "ls", "--external-id", str(entity_id), "--json"])
+                    rs_result = _run_cli(
+                        ["relationship-strength", "ls", "--external-id", str(entity_id), "--json"]
+                    )
                     if rs_result.get("ok") and "data" in rs_result:
                         strengths = rs_result["data"].get("relationshipStrengths", [])
                         if strengths:
                             dossier["relationshipStrength"] = strengths[0]
 
                 if include_interactions:
-                    int_result = _run_cli([
-                        "interaction", "ls", f"--{entity_type}-id", str(entity_id),
-                        "--type", "all", "--days", "365", "--max-results", "10", "--json"
-                    ])
+                    int_result = _run_cli(
+                        [
+                            "interaction",
+                            "ls",
+                            f"--{entity_type}-id",
+                            str(entity_id),
+                            "--type",
+                            "all",
+                            "--days",
+                            "365",
+                            "--max-results",
+                            "10",
+                            "--json",
+                        ]
+                    )
                     if int_result.get("ok") and "data" in int_result:
                         dossier["recentInteractions"] = int_result["data"]
 
                 if include_notes:
-                    notes_result = _run_cli([
-                        "note", "ls", f"--{entity_type}-id", str(entity_id),
-                        "--max-results", "10", "--json"
-                    ])
+                    notes_result = _run_cli(
+                        [
+                            "note",
+                            "ls",
+                            f"--{entity_type}-id",
+                            str(entity_id),
+                            "--max-results",
+                            "10",
+                            "--json",
+                        ]
+                    )
                     if notes_result.get("ok") and "data" in notes_result:
                         dossier["recentNotes"] = notes_result["data"]
 
                 if include_lists:
-                    lists_result = _run_cli([
-                        "list-entry", "ls", f"--{entity_type}-id", str(entity_id), "--json"
-                    ])
+                    lists_result = _run_cli(
+                        ["list-entry", "ls", f"--{entity_type}-id", str(entity_id), "--json"]
+                    )
                     if lists_result.get("ok") and "data" in lists_result:
                         dossier["listMemberships"] = lists_result["data"].get("entries", [])
 
-                return [TextContent(type="text", text=json.dumps(dossier, indent=2, ensure_ascii=False))]
+                return [
+                    TextContent(type="text", text=json.dumps(dossier, indent=2, ensure_ascii=False))
+                ]
 
             elif name == "get-file-url":
                 file_id = arguments["fileId"]
@@ -573,9 +854,11 @@ async def serve() -> None:
             elif name == "read-xaffinity-resource":
                 uri = arguments["uri"]
                 if not uri.startswith("xaffinity://"):
-                    return [TextContent(type="text", text=json.dumps({"error": "Invalid URI format"}))]
+                    return [
+                        TextContent(type="text", text=json.dumps({"error": "Invalid URI format"}))
+                    ]
 
-                path = uri[len("xaffinity://"):]
+                path = uri[len("xaffinity://") :]
                 parts = path.split("/", 1)
                 resource_name = parts[0]
                 resource_param = parts[1] if len(parts) > 1 else None
@@ -600,10 +883,19 @@ async def serve() -> None:
                     result = _run_cli(["list", "get", resource_param, "--json"])
                     if result.get("ok") and "data" in result:
                         views = result["data"].get("list", {}).get("savedViews", [])
-                        return [TextContent(type="text", text=json.dumps({"savedViews": views}, indent=2))]
+                        return [
+                            TextContent(
+                                type="text", text=json.dumps({"savedViews": views}, indent=2)
+                            )
+                        ]
                     return [TextContent(type="text", text=json.dumps(result, indent=2))]
                 else:
-                    return [TextContent(type="text", text=json.dumps({"error": f"Unknown resource: {resource_name}"}))]
+                    return [
+                        TextContent(
+                            type="text",
+                            text=json.dumps({"error": f"Unknown resource: {resource_name}"}),
+                        )
+                    ]
 
             else:
                 return [TextContent(type="text", text=f"Unknown tool: {name}")]

@@ -313,7 +313,13 @@ def _parse_field_types(values: tuple[str, ...]) -> list[FieldType] | None:
     "filter_expr",
     type=str,
     default=None,
-    help="Filter: 'field op value'. Ops: = != =~ =^ =$ > < >= <=. E.g., 'name =~ \"Acme\"'.",
+    help=(
+        "Filter on CUSTOM fields only. Ops: = != =~ =^ =$ > < >= <=. "
+        "E.g., 'Industry = \"Software\"'. Built-in fields (name, domain, "
+        "id, etc.) are silently dropped by the Affinity V2 API — use "
+        "--query for free-text search, or 'company get name:<value>' to "
+        "resolve by built-in identifier."
+    ),
 )
 @click.option(
     "--query",
