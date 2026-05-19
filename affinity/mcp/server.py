@@ -349,14 +349,26 @@ _FILTER_FIELD_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)")
 
 def _builtin_filter_violation(argv: list[str]) -> str | None:
     """Return the offending built-in field name if argv contains a --filter
-    expression targeting one (e.g. `--filter 'name = "Acme"'` or
-    `--filter 'name="Acme"'`), else None.
+    expression targeting one, else None.
+
+    Handles both Click argv forms the CLI accepts:
+        ``--filter`` ``name = "Acme"``    (two-arg, space-separated)
+        ``--filter`` ``name="Acme"``       (two-arg, operator-adjacent)
+        ``--filter=name = "Acme"``         (one-arg, equals-prefixed)
+        ``--filter=name="Acme"``           (one-arg, fully fused)
     """
     for i, a in enumerate(argv):
+        # Two-arg form: `--filter <expr>`
         if a == "--filter" and i + 1 < len(argv):
-            m = _FILTER_FIELD_RE.match(argv[i + 1])
-            if m and m.group(1) in _BUILTIN_FILTER_FIELDS:
-                return m.group(1)
+            expr = argv[i + 1]
+        # One-arg form: `--filter=<expr>` (Click accepts this for any long option)
+        elif a.startswith("--filter="):
+            expr = a[len("--filter=") :]
+        else:
+            continue
+        m = _FILTER_FIELD_RE.match(expr)
+        if m and m.group(1) in _BUILTIN_FILTER_FIELDS:
+            return m.group(1)
     return None
 
 
