@@ -136,9 +136,10 @@ class CompanyService:
         Returns:
             First matching Company, or None if no results.
 
-        Example:
+        Example (filter on a CUSTOM field — V2 silently ignores built-ins
+        like ``domain``):
             >>> company = client.companies.get_first(
-            ...     filter=F.field("domain").eq("acme.com")
+            ...     filter=F.field("Industry").eq("Software")
             ... )
             >>> if company:
             ...     print(company.name)

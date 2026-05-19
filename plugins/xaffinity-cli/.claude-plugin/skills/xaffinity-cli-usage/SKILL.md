@@ -295,15 +295,32 @@ For full query reference (operators, aggregation, quantifiers, examples): see `r
 
 ## Filtering
 
-### Entity commands (`person ls`, `company ls`): Filter works on ALL fields
+### Entity commands (`person ls`, `company ls`): Filter works on CUSTOM fields only
+
+The Affinity V2 API silently drops `--filter` clauses that target built-in
+identifiers — `name`, `domain`, `domains`, `id`, `firstName`, `lastName`,
+`email`, `emails`. The endpoint returns the unfiltered list with no error or
+warning. Filter only on custom fields:
 
 ```bash
-# Core fields work:
-xaffinity --readonly person ls --filter 'Email =~ "@acme.com"' --max-results 20 --json
-xaffinity --readonly company ls --filter 'name =~ "Acme"' --max-results 20 --json
-
 # Custom fields work:
 xaffinity --readonly person ls --filter 'Department = "Sales"' --max-results 20 --json
+xaffinity --readonly company ls --filter 'Industry = "Software"' --max-results 20 --json
+```
+
+To resolve a record by a built-in identifier, use the `get` commands
+(returns `error.type: "ambiguous_resolution"` with candidate IDs on
+multi-match):
+
+```bash
+xaffinity --readonly person get email:user@acme.com --json
+xaffinity --readonly company get name:Acme --json
+```
+
+For free-text search across built-in fields, use `--query`:
+
+```bash
+xaffinity --readonly company ls --query "Acme" --max-results 20 --json
 ```
 
 ### List export: `--filter` is CLIENT-SIDE (fetches everything first)

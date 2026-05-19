@@ -199,7 +199,13 @@ def _parse_field_types(values: tuple[str, ...]) -> list[FieldType] | None:
     "filter_expr",
     type=str,
     default=None,
-    help="Filter: 'field op value'. Ops: = != =~ =^ =$ > < >= <=. E.g., 'Email =~ \"@acme\"'.",
+    help=(
+        "Filter on CUSTOM fields only. Ops: = != =~ =^ =$ > < >= <=. "
+        "E.g., 'Status = \"Active\"'. Built-in fields (firstName, lastName, "
+        "email, emails, id) are silently dropped by the Affinity V2 API — "
+        "use --query for free-text search, or 'person get email:<value>' "
+        "to resolve by built-in identifier."
+    ),
 )
 @click.option(
     "--query",
